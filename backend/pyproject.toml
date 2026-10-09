@@ -5,8 +5,8 @@ description = "Eidolon-SC backend: conversation engine and API"
 requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
 dependencies = [
-    "cryptography>=50.0.1",
-    "fastapi>=0.141.1",
+    "cryptography>=50.0.2",
+    "fastapi>=0.142.2",
     "httpx>=0.28.1",
     "numpy>=2.4.6",
     "pipecat-ai[fish,soniox,webrtc]>=1.11.0",
