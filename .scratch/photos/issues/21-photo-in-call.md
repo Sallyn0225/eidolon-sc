@@ -4,29 +4,29 @@
 
 **Blocked by:** 16, 18
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] **后端**：
+- [x] **后端**：
   - 通话里的回合照样能发照片（引擎是同一个，标签不进语音和字幕）。
   - RTVI 服务器消息加 `photo`，带 `reply` 编号：标签写完时推 `pending`；生成完、通话还连着时推 `ready` 或 `failed`（带 `reason`）。
   - 次数用完时推 `photos-used-up`。
-- [ ] **电脑**（通话层只盖住对话栏）：
+- [x] **电脑**（通话层只盖住对话栏）：
   - 台词卡上方一张毛玻璃小卡（`bg-white/12`、`backdrop-blur-md`、`rounded-2xl`、`p-1.5`），里面是 128px 宽的照片，点开放大。
   - 生成中是同样大小的占位，加转圈和「正在拍照…」；失败时写「照片没发出来 · {原因}」。
   - 卡一直留着，这通电话里有了下一张就换成下一张。
-- [ ] **手机**（铺满整屏）：台词卡上方只出一颗毛玻璃胶囊。生成中是「正在拍照…」加转圈；到了是相机图标加「发来一张照片 · 点开看」，点了放大；失败是「照片没发出来 · {原因}」。
-- [ ] 小卡和胶囊都放在台词卡和底栏上面，不挡她的脸，有没有立绘都一样。
-- [ ] **收起时到了照片**：只有外壳顶上那条通话条在状态后面加一个相机图标和「新照片」，展开通话层或打开她的对话页后消失。她对话页页首下面那条通话条不提示。
-- [ ] **挂断以后**：
+- [x] **手机**（铺满整屏）：台词卡上方只出一颗毛玻璃胶囊。生成中是「正在拍照…」加转圈；到了是相机图标加「发来一张照片 · 点开看」，点了放大；失败是「照片没发出来 · {原因}」。
+- [x] 小卡和胶囊都放在台词卡和底栏上面，不挡她的脸，有没有立绘都一样。
+- [x] **收起时到了照片**：只有外壳顶上那条通话条在状态后面加一个相机图标和「新照片」，展开通话层或打开她的对话页后消失。她对话页页首下面那条通话条不提示。
+- [x] **挂断以后**：
   - 她挂断后才到的照片不上结束卡，照常挂进记录。前端回到对话时靠记录和轮询拿到结果。
   - 通话里收到 `photos-used-up` 时，胶囊进对话记录，通话层上不另外提示。
-- [ ] 通话里的照片也同步进对话记录（对话页开着时能看到）。
-- [ ] **`DESIGN.md`**：补上通话层电脑和手机两种，以及外壳顶上通话条的「新照片」。
-- [ ] **测试**：
+- [x] 通话里的照片也同步进对话记录（对话页开着时能看到）。
+- [x] **`DESIGN.md`**：补上通话层电脑和手机两种，以及外壳顶上通话条的「新照片」。
+- [x] **测试**：
   - 用 `test_voice_call.py` 的夹具和 `browser.py` 的 RTVI 客户端：`photo` 的三种状态、`photos-used-up`、挂断后才到的照片挂进记录。
   - 前端：通话事件怎么并进对话状态、「新照片」什么时候亮和灭、结束卡不带照片（先例是 `callEnd.test.ts`、`conversationLog.test.ts`）。
-- [ ] **验收**：按 `docs/agents/local-acceptance.md` 在本地构建版上用 Playwright，假麦克风打电话，生图走假服务。电脑看小卡，手机看胶囊；收起时看「新照片」；挂断后才到的照片。
-- [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+- [x] **验收**：按 `docs/agents/local-acceptance.md` 在本地构建版上用 Playwright，假麦克风打电话，生图走假服务。电脑看小卡，手机看胶囊；收起时看「新照片」；挂断后才到的照片。
+- [x] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
 
 ## Comments
 
@@ -44,3 +44,5 @@
 
 **票 20 留下的（2026-10-18）。** 通话的 offer 照旧带全部自带密钥，`OwnKeysInput.image` 已经解析成 `BroughtKeys.image`（`ImageSettings`，只有四项，同时数和画风由 `OwnImageService.generator` 补），但通话里的回合还没用它：文字回合是 `app.text_turn` 调 `engine.turn(..., own_image=brought.image)`，通话里 `call.py` 调 `self._engine.turn(...)` 时也要传进去（`Calls.start` 拿到的 `brought` 要存到通话上，或者放进 `CallKeys`）。传了以后 `Photos.eligibility` / `begin` 自然按自带的走：不查次数、`take(..., exempt=True)`、失败记 `own_key_failed`。测试照 `tests/test_own_image.py` 的 `MINE` 和 `photo_uses`。
 
+
+**票 21 做完（2026-10-17）。** 通话里的照片和文字回合走同一个引擎：`engine._photo_eligibility` 不再看 `in_call`，`Call.own_image` 把自带生图带进通话。`photo` 的 `pending` 在回复开头推，`call.CallTurns._tell_photo` 等 `Photos.came_out`（照片生成完就放行）后再推 `ready`/`failed`；通话挂断时这个等待随 worker 取消，照片照常生成、落库。前端 `LiveConversation` 的快照多了 `callPhoto`（这通电话里最近一张，通话结束后为 null，结束卡不带）和 `newPhoto`（收起时 `ready` 了才亮，`expand()` 或 `photoSeen()` 灭；对话页 `ConversationView` 打开时调 `photoSeen`）。放大用的 `PhotoViewer` 从 `PhotoBlock` 抽出来了，两处共用。电脑上没发出来时也用胶囊，不留空卡（`DESIGN.md` 写了）。验收是在本地构建版上用假后端（页面里冒充 RTVI）跑的，没有立绘素材，所以立绘版的通话层没看过。

@@ -114,6 +114,7 @@ from eidolon.config import (
     FREE_FISH_AUDIO_MODELS,
     FishAudioModel,
     IceServer,
+    ImageSettings,
     OWN_KEYS_PROXIED,
     Settings,
     SttKey,
@@ -125,6 +126,7 @@ from eidolon.emotion import EmotionJudging, SaidSegment, SegmentToJudge
 from eidolon.engine import (
     CallTurnRecorded,
     ConversationEngine,
+    PhotoPending,
     TurnDone,
     TurnJudged,
     UserSaid,
@@ -174,7 +176,8 @@ change the network traffic: WebRTC always sends Opus at 48 kHz."""
 class Call:
     """A call the browser asked for: which conversation, the models its turns run on (the
     user's own, if `own_llm`) and the one its replies are voiced with, how it wants the
-    audio, and the time zone its device reports."""
+    audio, the time zone its device reports, and the user's own image generation its photos
+    are generated on, if it brings it."""
 
     conversation: Conversation
     character: Character
@@ -184,6 +187,7 @@ class Call:
     device_timezone: str | None = None
     own_llm: bool = False
     voiced_by: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
+    own_image: ImageSettings | None = None
 
 
 _taking_turn: ContextVar["CallTurns | None"] = ContextVar("_taking_turn", default=None)
@@ -988,7 +992,7 @@ class Calls:
             admission, self._limits(), self._clock, partial(self._store.keep_call, conversation.id)
         )
         return await self._start(
-            user_id, conversation, character, options, offer, admission, outcome
+            user_id, conversation, character, options, offer, admission, outcome, brought.image
         )
 
     async def _start(
@@ -1000,6 +1004,7 @@ class Calls:
         offer: SessionDescription,
         admission: Admission[CallKeys],
         outcome: CallOutcome,
+        own_image: ImageSettings | None = None,
     ) -> dict:
         keys = admission.keys
         connections: list[SmallWebRTCConnection] = []
@@ -1025,7 +1030,7 @@ class Calls:
         try:
             call = Call(
                 conversation, character, admission.llms, options.muted, options.quality,
-                options.device_timezone, admission.own_llm, keys.tts_model,
+                options.device_timezone, admission.own_llm, keys.tts_model, own_image,
             )
             answer = await self._answer(SmallWebRTCRequest(offer.sdp, offer.type), serve)
         except BaseException:
@@ -1325,6 +1330,13 @@ class CallTurns(FrameProcessor):
     opens. A turn replied to afresh after a follow-on opens again with `user`; an
     interrupted one's `done` carries only the segments complete by then.
 
+    A reply may send a photo, as a text turn's does (GLOSSARY.md「照片」): its tag is never
+    voiced nor shown, and `photo` tells the browser it is being generated (`pending`), with
+    the number of the reply; once it has come out and is kept with the reply, while the call
+    is on, a second `photo` tells it how (`ready`, or `failed` and why). One that comes out
+    after the call is over is told of no more: the browser finds it in the record. The
+    user's photos this hour used up, `photos-used-up` tells it, before `done`.
+
     Given `emotions`, each segment of a reply is judged once it is complete, while it is
     voiced, and the browser gets an `emotion` message for it, for her stand; judging goes
     on apart from the reply, which neither waits for it nor, dropped or interrupted, takes
@@ -1373,6 +1385,7 @@ class CallTurns(FrameProcessor):
         self._follow_on_timeout = follow_on_timeout
         self._emotions = emotions
         self._judging: set[asyncio.Task] = set()  # segments' emotions being judged
+        self._photos: set[asyncio.Task] = set()  # photos sent, waited on to tell how they came out
         self._turns = TurnTaking(text_only=call.muted)
         self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: wakes it, to hang up
         self._ended = False  # it is hanging up: the outcome is asked no more
@@ -1644,7 +1657,7 @@ class CallTurns(FrameProcessor):
         recorded = CallTurnRecorded()
         async for event in self._engine.turn(
             self._call.conversation, text, self._call.llms, self._call.device_timezone, stop,
-            self._outcome.in_call, self._call.voiced_by,
+            self._outcome.in_call, self._call.voiced_by, self._call.own_image,
         ):
             if isinstance(event, CallTurnRecorded):
                 recorded = event
@@ -1668,9 +1681,11 @@ class CallTurns(FrameProcessor):
             if turn is not None:
                 turn.see(event)
             message = shown(event)
-            if isinstance(event, UserSaid):
+            if isinstance(event, UserSaid | PhotoPending):
                 message["reply"] = number
             await self._send(message)
+            if isinstance(event, PhotoPending):
+                self._tell_photo(number, event.id)
             if isinstance(event, SegmentDelta):
                 if event.lang == "zh":
                     zh[event.segment] = zh.get(event.segment, "") + event.text
@@ -1705,12 +1720,24 @@ class CallTurns(FrameProcessor):
         if message is not None:
             await self._send(message)
 
+    def _tell_photo(self, reply: int, photo_id: str) -> None:
+        """Tell the browser how the photo reply `reply` sent came out, once it has, if the
+        call is still on; a photo whose reply is not recorded, dropped, is never told of."""
+        telling = self.create_task(self._send_photo(reply, photo_id))
+        self._photos.add(telling)
+        telling.add_done_callback(self._photos.discard)
+
+    async def _send_photo(self, reply: int, photo_id: str) -> None:
+        photo = await self._engine.photo_came_out(photo_id, self._call.conversation.user_id)
+        if photo is not None:
+            await self._send({"type": "photo", "reply": reply, **photo.shown()})
+
     async def _send(self, message: dict) -> None:
         await self.push_frame(RTVIServerMessageFrame(data=message))
 
     async def _stop_worker(self) -> None:
-        for judging in list(self._judging):
-            await self.cancel_task(judging)
+        for task in [*self._judging, *self._photos]:
+            await self.cancel_task(task)
         if self._timer is not None:
             await self.cancel_task(self._timer)
             self._timer = None

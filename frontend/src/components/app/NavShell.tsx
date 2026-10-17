@@ -46,7 +46,13 @@ export function NavShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {barShown && character && held && (
           <div style={herVars(character.color)} className="shrink-0">
-            <CallBar ref={focus.note} call={call.state} name={character.name} onExpand={() => held.expand()} />
+            <CallBar
+              ref={focus.note}
+              call={call.state}
+              name={character.name}
+              newPhoto={snapshot.newPhoto}
+              onExpand={() => held.expand()}
+            />
           </div>
         )}
         <div className="relative min-h-0 flex-1">

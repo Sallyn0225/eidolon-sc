@@ -3,6 +3,7 @@
 import {
   useEffect,
   useRef,
+  useState,
   useSyncExternalStore,
   type ComponentType,
   type ReactNode,
@@ -12,14 +13,16 @@ import {
 
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { cueText } from "@/lib/affinity";
-import type { Character, Outfit, Segment } from "@/lib/api";
+import { photoImageUrl, type Character, type Outfit, type Photo, type Segment } from "@/lib/api";
 import { endCard, type CallEnd } from "@/lib/callEnd";
 import { clock, showTime } from "@/lib/callTime";
 import { giftsHref } from "@/lib/gifts";
+import { photoFailureNote } from "@/lib/photoFailure";
 import type { OwnService } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsCategory";
 import {
@@ -39,11 +42,14 @@ import {
   MicOffIcon,
   MicSwitchIcon,
   PhoneIcon,
+  PhotoFailedIcon,
+  PhotoIcon,
   TextOnlyIcon,
 } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { CueArrowIcon } from "./AffinityBadge";
+import { PhotoViewer } from "./PhotoViewer";
 import { Stand } from "./stand/Stand";
 import { useCallTime } from "./useCallTime";
 import { useProducerTimezone } from "./useProducerTimezone";
@@ -70,6 +76,8 @@ type Props = {
   previousLine: Segment | null;
   /** 用户正在说、还没定稿的话。 */
   hearing: string;
+  /** 这通电话里她最近发来的照片，生成中、发出来了或者没发出来；还没有时为 null。 */
+  photo: Photo | null;
   /** 刚刚一个回合让她的好感度有了变化，约 2.6 秒；状态行这时写这句话。 */
   affinityCue: AffinityCue | null;
   /** 她的立绘该是什么样子；她没有立绘时用不上。 */
@@ -141,6 +149,7 @@ export function LiveCallLayer({
       line={snapshot.line}
       previousLine={snapshot.previousLine}
       hearing={snapshot.hearing}
+      photo={snapshot.callPhoto}
       affinityCue={snapshot.affinityCue}
       standDirection={snapshot.stand}
       standOutfits={standOutfits}
@@ -168,6 +177,7 @@ export function LiveCallLayer({
  * 底是她的头像放大模糊（有背景图时换成清晰的背景图），上面压一层到 call.deep 的渐变。
  * 没有立绘时中部是 112px 头像、名字和状态行；她有立绘时（`character.stand`）立绘做底，名字和状态行缩进头部，
  * 底部压暗。台词放在底部的毛玻璃卡里，再下面是毛玻璃底栏；结束后台词卡换成同样毛玻璃的结束卡。
+ * 她在这通电话里发来照片时，台词卡上方出一张小卡（电脑）或一颗胶囊（手机），结束卡上不带。
  */
 export function CallLayer(props: Props) {
   const { character, call, isCollapsed, isFullScreen, isReducedMotion, layerRef } = props;
@@ -278,6 +288,9 @@ export function CallLayer(props: Props) {
               {props.micNotice && t.micNotices[props.micNotice]}
             </p>
             {/* 台词卡在接通前不出现 */}
+            {call.phase === "connected" && props.photo && (
+              <CallPhoto key={props.photo.id} photo={props.photo} isFullScreen={isFullScreen} />
+            )}
             {call.phase === "connected" && <LineCard {...props} />}
           </>
         )}
@@ -441,6 +454,84 @@ function LineCard({ line, previousLine, hearing, textOnly }: Props) {
         )}
       </div>
       {hearing && <p className="mt-3 text-sm text-white/80">{t.hearing(hearing)}</p>}
+    </div>
+  );
+}
+
+/**
+ * 她在通话里发来的照片，放在台词卡上方，不挡她的脸（DESIGN.md「Call layer」的「照片」）。有了下一张就换成下一张。
+ * - 电脑：一张毛玻璃小卡，里面是 128px 宽的照片，点开放大；生成中是同样大小的占位加转圈和「正在拍照…」，
+ *   没发出来时写「照片没发出来 · {原因}」。
+ * - 手机：一颗毛玻璃胶囊。生成中转圈加「正在拍照…」，到了是相机图标加「发来一张照片 · 点开看」、点了放大，
+ *   没发出来同电脑。
+ */
+function CallPhoto({ photo, isFullScreen }: { photo: Photo; isFullScreen: boolean }) {
+  const [viewing, setViewing] = useState(false);
+  const failed = photo.status === "failed" && t.photo.failed(photoFailureNote(photo.reason).reason);
+  if (isFullScreen || failed) {
+    const content =
+      photo.status === "pending" ? (
+        <>
+          <Spinner className="size-4" />
+          {t.photo.taking}
+        </>
+      ) : photo.status === "ready" ? (
+        <>
+          <PhotoIcon aria-hidden className="size-4" />
+          {t.photo.sent}
+        </>
+      ) : (
+        <>
+          <PhotoFailedIcon aria-hidden className="size-4" />
+          {failed}
+        </>
+      );
+    const pill = "flex items-center gap-2 rounded-full bg-white/12 px-4 py-2 text-sm backdrop-blur-md";
+    return (
+      <div role="status" className="flex justify-center">
+        {photo.status === "ready" ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setViewing(true)}
+              className={cn(pill, "outline-none focus-visible:ring-3 focus-visible:ring-white/60")}
+            >
+              {content}
+            </button>
+            <PhotoViewer id={photo.id} open={viewing} onOpenChange={setViewing} />
+          </>
+        ) : (
+          <p className={pill}>{content}</p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div role="status" className="rounded-2xl bg-white/12 p-1.5 backdrop-blur-md">
+      {photo.status === "pending" ? (
+        <div className="flex aspect-[832/1216] w-32 flex-col items-center justify-center gap-2 rounded-xl bg-white/8 text-meta text-white/80">
+          <Spinner className="size-4" />
+          {t.photo.taking}
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            aria-label={t.photo.open}
+            onClick={() => setViewing(true)}
+            className="block w-32 overflow-hidden rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-white/60"
+          >
+            <img
+              src={photoImageUrl(photo.id)}
+              alt={copy.conversation.photo.sent}
+              width={832}
+              height={1216}
+              className="aspect-[832/1216] w-full object-cover"
+            />
+          </button>
+          <PhotoViewer id={photo.id} open={viewing} onOpenChange={setViewing} />
+        </>
+      )}
     </div>
   );
 }

@@ -215,8 +215,9 @@ export type Memory = {
  * limit. She hanging up, it gives the event that she did, just recorded in the conversation,
  * and for a cooldown when it ends. */
 export type CallEvent =
-  | Exclude<TurnEvent, { type: "user" }>
+  | Exclude<TurnEvent, { type: "user" | "photo" }>
   | CallUserEvent
+  | CallPhotoEvent
   | SegmentPlaying
   | SegmentEmotion
   | Speaking
@@ -232,6 +233,13 @@ export type CallEvent =
 /** A call's turn opens with `user` as any turn does, saying too which of her replies in the call
  * it opens, numbered from 1 (a turn replied to afresh opens again, with the next number). */
 type CallUserEvent = Extract<TurnEvent, { type: "user" }> & { reply: number };
+
+/** A photo she sends in reply `reply` of the call (GLOSSARY.md「照片」): `pending` as her tag closes,
+ * before her first words, as in a typed turn; then, if it comes out while the call is on, once
+ * more saying how. One that comes out after the call is over is told of no more: the record has it. */
+export type CallPhotoEvent =
+  | (Extract<TurnEvent, { type: "photo" }> & { reply: number })
+  | { type: "photo"; reply: number; id: string; status: "ready" | "failed"; reason: string | null };
 
 /** Her voice has started playing segment `segment` of reply `reply`, replies being numbered
  * from 1 within the call. Sent as the segment's first audio goes out, so it arrives a little

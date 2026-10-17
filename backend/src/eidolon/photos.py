@@ -49,7 +49,7 @@ import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from eidolon.activity import (
@@ -66,7 +66,7 @@ from eidolon.config import ImageSettings
 from eidolon.image_generation import TIME_LIMIT, ImageFailed, ImageGenerator
 from eidolon.own_keys import masked_cause
 from eidolon.photo_prompt import image_prompt, read_tag
-from eidolon.store import PhotoFailure, Store
+from eidolon.store import Photo, PhotoFailure, Store
 from eidolon.usage import OverLimit, UsageLimiter
 
 log = logging.getLogger(__name__)
@@ -150,12 +150,14 @@ def photo_turn(asked: bool, tier: Tier | None, eligibility: Eligibility) -> Phot
 
 @dataclass
 class _Generating:
-    """A photo begun: whether its reply is recorded or never will be, and how it came out
-    once it has (its picture, or why there is none)."""
+    """A photo begun: whether its reply is recorded or never will be, how it came out
+    once it has (its picture, or why there is none), and whether it is settled (`settled`):
+    kept as it came out, or dropped."""
 
     recorded: bool = False
     dropped: bool = False
     outcome: tuple[bytes | None, PhotoFailure | None] | None = None
+    settled: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 @dataclass
@@ -241,9 +243,18 @@ class Photos:
         """Her reply is never to be recorded: the photo is not kept, however it comes out."""
         generating = self._generating[photo_id]
         if generating.outcome is not None:
-            del self._generating[photo_id]
+            self._forget(photo_id)
         else:
             generating.dropped = True
+
+    async def came_out(self, photo_id: str, user_id: str) -> Photo | None:
+        """The photo, sent or not, once it has come out and is kept with her reply, for the
+        user whose it is; None if it is not kept, its reply never recorded or its
+        conversation deleted meanwhile, or is not theirs."""
+        generating = self._generating.get(photo_id)
+        if generating is not None:
+            await generating.settled.wait()
+        return self._store.photo(photo_id, user_id)
 
     async def _generate(
         self,
@@ -273,7 +284,7 @@ class Photos:
                 use.give_back()
         generating = self._generating[photo_id]
         if generating.dropped:
-            del self._generating[photo_id]
+            self._forget(photo_id)
         elif generating.recorded:
             self._keep(photo_id, *outcome)
         else:
@@ -354,9 +365,13 @@ class Photos:
                 del self._queues[key, at_a_time]
 
     def _keep(self, photo_id: str, image: bytes | None, reason: PhotoFailure | None) -> None:
-        del self._generating[photo_id]
         if not self._store.finish_photo(photo_id, image, reason):
             log.info("photo %s came out after its reply was deleted; not kept", photo_id)
+        self._forget(photo_id)
+
+    def _forget(self, photo_id: str) -> None:
+        """The photo is settled: kept, or dropped."""
+        self._generating.pop(photo_id).settled.set()
 
     async def aclose(self) -> None:
         """Stop generating: the server is shutting down."""

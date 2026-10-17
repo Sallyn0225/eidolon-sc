@@ -3,13 +3,14 @@
 import { useState } from "react";
 
 import { ShellLink } from "@/components/app/ShellLink";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 import { photoImageUrl, type Photo } from "@/lib/api";
 import { photoFailureNote } from "@/lib/photoFailure";
 import { settingsHref } from "@/lib/settingsCategory";
 import { PhotoFailedIcon, PhotoIcon } from "@/theme/icons";
+
+import { PhotoViewer } from "./PhotoViewer";
 
 const t = copy.conversation.photo;
 
@@ -44,12 +45,7 @@ export function PhotoBlock({ photo }: { photo: Photo }) {
       >
         <img src={src} alt={t.sent} width={832} height={1216} className="aspect-[832/1216] w-full object-cover" />
       </button>
-      <Dialog open={viewing} onOpenChange={setViewing}>
-        <DialogContent variant="viewer">
-          <DialogTitle className="sr-only">{t.viewer}</DialogTitle>
-          <img src={src} alt={t.sent} className="max-h-full max-w-full rounded-lg object-contain" />
-        </DialogContent>
-      </Dialog>
+      <PhotoViewer id={photo.id} open={viewing} onOpenChange={setViewing} />
     </>
   );
 }

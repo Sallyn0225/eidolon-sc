@@ -134,6 +134,11 @@ export function ConversationView({
     return () => close(conversation);
   }, [character.id, userId, open, close]);
 
+  // 收起时到的照片就在这页的对话记录里：外壳顶上通话条的「新照片」到这里就算看过了。
+  useEffect(() => {
+    if (snapshot.newPhoto) live?.photoSeen();
+  }, [snapshot.newPhoto, live]);
+
   const isOpen = conversation.status === "open";
   // 送礼入口去的礼物页：只带她，礼物一律记进当前对话（历史对话里点的也一样）。
   const gifts = giftsHref(character.id);

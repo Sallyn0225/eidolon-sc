@@ -67,7 +67,7 @@ activity record keeps, and those `on_ended` has are told then, for her to hang u
 it. A turn in a conversation she has ended is rejected, as is one that finds it ended,
 elsewhere, as it is recorded.
 
-In a typed turn that could have a photo (`photos`), the judge model is asked whether the
+In a turn that could have a photo (`photos`), typed or in a call, the judge model is asked whether the
 user asks her for one, along with whatever else it is asked, or apart where it is asked
 nothing else; failing, the turn has none. Asked, she is told so in the system message that
 changes from turn to turn, and may write a photo tag at the front of her reply: unless her
@@ -78,7 +78,8 @@ the browser when the user may ask again, just before `done`. Her reply is record
 photo, being generated; a reply not recorded drops it. From then on her prompt carries the
 tag before her reply, as she wrote it, so she knows what she sent; that of a photo not sent
 after all marked failed, and she is told what that means (`photos.NOT_RECEIVED`).
-Retrieval, memory and the judge model never read it.
+Retrieval, memory and the judge model never read it. How the photo comes out is not the
+turn's to wait for: `photo_came_out` tells, once it has.
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
@@ -134,6 +135,7 @@ from eidolon.store import (
     ConversationEvent,
     Message,
     NewPhoto,
+    Photo,
     Recorded,
     Store,
     Typed,
@@ -518,7 +520,7 @@ class ConversationEngine:
         history = latest_turns(messages, turns)  # what all but the chat model read
         affinity = self._affinity(conversation)
         judging = affinity is not None and not affinity.cooling
-        eligibility = self._photo_eligibility(conversation, character, in_call, photo.own)
+        eligibility = self._photo_eligibility(conversation, character, photo.own)
         asking_photo = eligibility is not None
         judged_apart = None
         if (judging or asking_photo) and self._retrieval is None and self._affinity_judge:
@@ -682,16 +684,22 @@ class ConversationEngine:
         self,
         conversation: Conversation,
         character: Character,
-        in_call: InCall | None,
         own: ImageSettings | None,
     ) -> Eligibility | None:
         """What a turn with her may send, bringing the user's `own` image generation if any,
-        if it could have a photo, and so the judge model is asked whether it asks for one: a
-        typed turn, there being the judge model to ask."""
+        if it could have a photo, and so the judge model is asked whether it asks for one:
+        there being the judge model to ask, typed or in a call alike."""
         has_judge = self._retrieval is not None or self._affinity_judge is not None
-        if in_call is not None or not has_judge or self._photos is None:
+        if not has_judge or self._photos is None:
             return None
         return self._photos.eligibility(character, conversation.user_id, own)
+
+    async def photo_came_out(self, photo_id: str, user_id: str) -> Photo | None:
+        """The photo a turn of the user's sent (`photo`), once it has come out, sent or not,
+        and is kept with her reply; None if it is not kept, its reply never recorded."""
+        if self._photos is None:
+            return None
+        return await self._photos.came_out(photo_id, user_id)
 
     def _begin_photo(
         self, character: Character, tag: str, user_id: str, photo: _Photo
