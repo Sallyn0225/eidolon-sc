@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
 dependencies = [
     "cryptography>=50.0.2",
-    "fastapi>=0.143.0",
+    "fastapi>=0.146.0",
     "holidays>=0.107",
     "httpx[socks]>=0.28.1",
     "loguru>=0.7.3",
@@ -34,7 +34,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.17.0",
+    "ruff>=0.17.1",
 ]
 
 [tool.uv]
