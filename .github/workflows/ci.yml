@@ -28,7 +28,7 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0 # 这个 action 不发布 v10 这样的大版本标签
+      - uses: astral-sh/setup-uv@v10.3.2 # 这个 action 不发布 v10 这样的大版本标签
         with:
           working-directory: backend
           enable-cache: true
