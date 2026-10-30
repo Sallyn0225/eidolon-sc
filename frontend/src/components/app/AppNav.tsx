@@ -11,16 +11,24 @@ import { hasUnseen } from "@/lib/conversationList";
 import { currentNavItem, FIRST_LEVEL, isTyping, NAV_ITEMS, navDestination, navDots, type NavItem } from "@/lib/navShell";
 import { REPOSITORY_URL } from "@/lib/repository";
 import { cn } from "@/lib/utils";
+import { Aperture as MomentsIcon } from "lucide-react";
+import { useEntry, useHasNew } from "@/components/play/moments-prototype/store";
 import { ConversationsIcon, GitHubIcon, PlayIcon, SettingsIcon } from "@/theme/icons";
 
-const ICONS: Record<NavItem, typeof SettingsIcon> = {
+// PROTOTYPE：入口是导航时多一项「朋友圈」（.scratch/moments/issues/05）。
+type ProtoItem = NavItem | "moments";
+const MOMENTS_HREF = "/play/moments";
+
+const ICONS: Record<ProtoItem, typeof SettingsIcon> = {
+  moments: MomentsIcon,
   conversations: ConversationsIcon,
   play: PlayIcon,
   settings: SettingsIcon,
 };
 
 /** 带点时读屏读的名字。 */
-const DOTTED: Partial<Record<NavItem, string>> = {
+const DOTTED: Partial<Record<ProtoItem, string>> = {
+  moments: "朋友圈，有新动态",
   conversations: copy.nav.conversationsUnseen,
   play: copy.nav.playRewarded,
 };
@@ -81,14 +89,24 @@ export function NavDock({ isInert }: { isInert: boolean }) {
 function NavLinks({ className }: { className: string }) {
   const pathname = usePathname();
   const { guard, held, characters, latest, preferences, onScreen, newRewards } = useDirectory();
-  const current = currentNavItem(pathname);
+  const entry = useEntry();
+  const hasNewMoments = useHasNew();
+  const onMoments = entry === "nav" && pathname === MOMENTS_HREF;
+  const current: ProtoItem | null = onMoments ? "moments" : currentNavItem(pathname);
   const unseen = characters !== null && hasUnseen(characters, latest, { preferences, onScreen });
-  const dots = navDots(current, { conversations: unseen, rewards: newRewards });
-  return NAV_ITEMS.map((item) => {
+  const realDots = navDots(current === "moments" ? null : current, { conversations: unseen, rewards: newRewards });
+  const dots: Record<ProtoItem, boolean> = {
+    ...realDots,
+    play: realDots.play || (entry === "card" && hasNewMoments && current !== "play"),
+    moments: hasNewMoments && current !== "moments",
+  };
+  const items: readonly ProtoItem[] =
+    entry === "nav" ? ["conversations", "moments", "play", "settings"] : NAV_ITEMS;
+  return items.map((item) => {
     const Icon = ICONS[item];
     const isCurrent = item === current;
     const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
-      const to = navDestination(item, pathname);
+      const to = item === "moments" ? (onMoments ? null : MOMENTS_HREF) : navDestination(item, pathname);
       if (to === null) event.preventDefault();
       else guard(to)(event);
       if (!opensNewTab(event) && held?.snapshot().layer?.collapsed === false) {
@@ -99,7 +117,7 @@ function NavLinks({ className }: { className: string }) {
     return (
       <NextLink
         key={item}
-        href={FIRST_LEVEL[item]}
+        href={item === "moments" ? MOMENTS_HREF : FIRST_LEVEL[item]}
         onClick={onClick}
         aria-current={isCurrent ? "page" : undefined}
         aria-label={dots[item] ? DOTTED[item] : undefined}
@@ -119,7 +137,7 @@ function NavLinks({ className }: { className: string }) {
             <span aria-hidden className="absolute top-1 right-2.5 size-1.5 rounded-full bg-foreground" />
           )}
         </span>
-        <span className={isCurrent ? "font-medium text-foreground" : "text-muted-foreground"}>{copy.nav[item]}</span>
+        <span className={isCurrent ? "font-medium text-foreground" : "text-muted-foreground"}>{item === "moments" ? "朋友圈" : copy.nav[item]}</span>
       </NextLink>
     );
   });

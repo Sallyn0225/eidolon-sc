@@ -8,6 +8,7 @@ import { useBar } from "@/components/play/useBar";
 import { useCalendar } from "@/components/play/useCalendar";
 import { useCycles } from "@/components/play/useCycles";
 import { usePlayState } from "@/components/play/usePlayState";
+import { useEntry, useHasNew } from "@/components/play/moments-prototype/store";
 import { achievementsSeenUpTo, OF_ALL } from "@/lib/achievements";
 import { partsOf } from "@/lib/calendar";
 import { playCards } from "@/lib/playCards";
@@ -39,6 +40,9 @@ export function PlayPage() {
     thisWeek && scheduleNow ? pendingJobs({ week: thisWeek, drafts: draftsOn(thisWeek.id), now: scheduleNow }).length : 0;
   const { view: cycles } = useCycles();
   const { bar } = useBar();
+  // PROTOTYPE：朋友圈的卡（入口是玩法卡时），排在网格第一张。
+  const entry = useEntry();
+  const hasNewMoments = useHasNew();
   const byId = new Map((characters ?? []).map((character) => [character.id, character]));
   const [first, ...rest] = playCards({
     state,
@@ -59,6 +63,16 @@ export function PlayPage() {
         : null,
     bar: bar?.enabled ? { rewardToday: bar.reward_today } : null,
   });
+  if (entry === "card") {
+    rest.unshift({
+      id: "moments",
+      name: "朋友圈",
+      href: "/play/moments",
+      status: hasNewMoments ? "八宮めぐる发了新动态" : "她们最近的动态",
+      hasDot: hasNewMoments,
+      dotLabel: "有新动态",
+    });
+  }
   return (
     <PlayShell header={<PlayHeader />}>
       {failure && <FailureNotice failure={failure} />}
