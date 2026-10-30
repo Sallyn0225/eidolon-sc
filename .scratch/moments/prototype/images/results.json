@@ -1,0 +1,376 @@
+[
+ {
+  "id": "A1-1",
+  "kind": "scenery 风景",
+  "look": "rella 下有没有把人画回来；像不像随手拍的风景",
+  "pos": "no humans, scenery, 0.7::artist:rella::, street, dusk, city lights, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 6.344000000004598
+ },
+ {
+  "id": "A1-2",
+  "kind": "scenery 风景",
+  "look": "同上（海边）",
+  "pos": "no humans, scenery, 0.7::artist:rella::, beach, blue sky, ocean, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 5.625
+ },
+ {
+  "id": "A2",
+  "kind": "scenery 实拍风",
+  "look": "实拍风能不能当朋友圈风景；和 A1-1 比哪个好（同种子）",
+  "pos": "background dataset, no humans, scenery, street, dusk, city lights, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 9.875
+ },
+ {
+  "id": "B1",
+  "kind": "food 食物",
+  "look": "会不会变成白底写实食物图；有没有场景",
+  "pos": "no humans, food focus, 0.7::artist:rella::, parfait, cafe, on table, depth of field, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 9.281999999999243
+ },
+ {
+  "id": "B2",
+  "kind": "object 物品",
+  "look": "同上（桌上的花）",
+  "pos": "no humans, object focus, 0.7::artist:rella::, flower, vase, window, sunlight, depth of field, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 5.218000000000757
+ },
+ {
+  "id": "C1",
+  "kind": "candid 抓拍",
+  "look": "像不像抓拍；看不看镜头（真乃，咖啡店，在吃东西往下看）",
+  "pos": "1girl, solo, sakuragi mano, idolmaster shiny colors, 0.7::artist:rella::, brown hair, medium hair, brown eyes, upper body, cafe, indoors, casual, eating, looking down, depth of field, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, looking at viewer",
+  "seed": 7654321,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 10.655999999995402
+ },
+ {
+  "id": "C2",
+  "kind": "candid 抓拍",
+  "look": "只靠服务器默认补的 looking away 够不够（走路，没写视线）",
+  "pos": "1girl, solo, sakuragi mano, idolmaster shiny colors, 0.7::artist:rella::, brown hair, medium hair, brown eyes, cowboy shot, street, outdoors, casual, walking, looking away, depth of field, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, looking at viewer",
+  "seed": 2468013,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 10.264999999999418
+ },
+ {
+  "id": "C3",
+  "kind": "posed 摆拍",
+  "look": "和 C2 同种子同场景，抓拍和摆拍拉开差别没有",
+  "pos": "1girl, solo, sakuragi mano, idolmaster shiny colors, 0.7::artist:rella::, brown hair, medium hair, brown eyes, cowboy shot, street, outdoors, casual, walking, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 2468013,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 10.671999999998661
+ },
+ {
+  "id": "E1-1",
+  "kind": "group 合照他拍",
+  "look": "人数对不对；真乃和灯织认不认得出；串没串色（AI's Choice）",
+  "pos": "2girls, idolmaster shiny colors, 0.7::artist:rella::, side-by-side, upper body, cafe, indoors, casual, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1234567,
+  "chars": [
+   "mano",
+   "hiori"
+  ],
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 2 个；use_coords=True",
+  "took": 11.48399999999674
+ },
+ {
+  "id": "E1-2",
+  "kind": "group 合照他拍",
+  "look": "同上，第二个种子",
+  "pos": "2girls, idolmaster shiny colors, 0.7::artist:rella::, side-by-side, upper body, cafe, indoors, casual, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1357911,
+  "chars": [
+   "mano",
+   "hiori"
+  ],
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 2 个；use_coords=True",
+  "took": 8.437000000005355
+ },
+ {
+  "id": "E2",
+  "kind": "group 合照他拍 + 坐标",
+  "look": "和 E1-1 同种子，加坐标 (0.3,0.5)/(0.7,0.5) 有没有好处",
+  "pos": "2girls, idolmaster shiny colors, 0.7::artist:rella::, side-by-side, upper body, cafe, indoors, casual, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1234567,
+  "chars": [
+   "mano",
+   "hiori"
+  ],
+  "coords": [
+   [
+    0.3,
+    0.5
+   ],
+   [
+    0.7,
+    0.5
+   ]
+  ],
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 2 个；use_coords=True",
+  "took": 8.860000000000582
+ },
+ {
+  "id": "E3",
+  "kind": "group 合照自拍",
+  "look": "两人自拍会不会多出手或手机",
+  "pos": "2girls, idolmaster shiny colors, 0.7::artist:rella::, selfie, upper body, park, outdoors, casual, heads together, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 7654321,
+  "chars": [
+   "mano",
+   "hiori"
+  ],
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 2 个；use_coords=True",
+  "took": 6.0
+ },
+ {
+  "id": "E4-1",
+  "kind": "group 双胞胎",
+  "look": "最难：甘奈和甜花会不会长成一个人、认混（AI's Choice）",
+  "pos": "2girls, idolmaster shiny colors, 0.7::artist:rella::, side-by-side, upper body, cafe, indoors, casual, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1234567,
+  "chars": [
+   "amana",
+   "tenka"
+  ],
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 2 个；use_coords=True",
+  "took": 10.469000000004598
+ },
+ {
+  "id": "E4-2",
+  "kind": "group 双胞胎",
+  "look": "同上，第二个种子",
+  "pos": "2girls, idolmaster shiny colors, 0.7::artist:rella::, side-by-side, upper body, cafe, indoors, casual, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1357911,
+  "chars": [
+   "amana",
+   "tenka"
+  ],
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 2 个；use_coords=True",
+  "took": 11.514999999999418
+ },
+ {
+  "id": "C1b",
+  "kind": "candid 抓拍重试",
+  "look": "C1 原样换种子：看镜头是偶发还是稳定",
+  "pos": "1girl, solo, sakuragi mano, idolmaster shiny colors, 0.7::artist:rella::, brown hair, medium hair, brown eyes, upper body, cafe, indoors, casual, eating, looking down, depth of field, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, looking at viewer",
+  "seed": 1357911,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 8.235000000000582
+ },
+ {
+  "id": "C1c",
+  "kind": "candid 抓拍重试",
+  "look": "C1 同种子，eating 换 drinking：是不是动作的问题",
+  "pos": "1girl, solo, sakuragi mano, idolmaster shiny colors, 0.7::artist:rella::, brown hair, medium hair, brown eyes, upper body, cafe, indoors, casual, drinking, looking down, depth of field, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, looking at viewer",
+  "seed": 7654321,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 10.281999999999243
+ },
+ {
+  "id": "F1",
+  "kind": "group 三人他拍",
+  "look": "真乃+灯织+めぐる：人数和认人（AI's Choice）",
+  "pos": "3girls, idolmaster shiny colors, 0.7::artist:rella::, group picture, upper body, cafe, indoors, casual, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1234567,
+  "chars": [
+   "mano",
+   "hiori",
+   "meguru"
+  ],
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 3 个；use_coords=True",
+  "took": 8.26600000000326
+ },
+ {
+  "id": "F2",
+  "kind": "group 三人 + 坐标",
+  "look": "F1 加坐标 0.2/0.5/0.8",
+  "pos": "3girls, idolmaster shiny colors, 0.7::artist:rella::, group picture, upper body, cafe, indoors, casual, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1234567,
+  "chars": [
+   "mano",
+   "hiori",
+   "meguru"
+  ],
+  "coords": [
+   [
+    0.2,
+    0.5
+   ],
+   [
+    0.5,
+    0.5
+   ],
+   [
+    0.8,
+    0.5
+   ]
+  ],
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 3 个；use_coords=True",
+  "took": 7.625
+ },
+ {
+  "id": "H1",
+  "kind": "group 横图",
+  "look": "E1-1 改 1216×832：合照横图是不是更好",
+  "pos": "2girls, idolmaster shiny colors, 0.7::artist:rella::, side-by-side, upper body, cafe, indoors, casual, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1234567,
+  "chars": [
+   "mano",
+   "hiori"
+  ],
+  "size": [
+   1216,
+   832
+  ],
+  "meta": "元数据 char_captions 2 个；use_coords=True",
+  "took": 9.656999999999243
+ },
+ {
+  "id": "H1s",
+  "kind": "group 方图",
+  "look": "E1-1 改 1024×1024",
+  "pos": "2girls, idolmaster shiny colors, 0.7::artist:rella::, side-by-side, upper body, cafe, indoors, casual, smile, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1234567,
+  "chars": [
+   "mano",
+   "hiori"
+  ],
+  "size": [
+   1024,
+   1024
+  ],
+  "meta": "元数据 char_captions 2 个；use_coords=True",
+  "took": 6.843000000000757
+ },
+ {
+  "id": "H2",
+  "kind": "scenery 横图",
+  "look": "A1-1 改 1216×832：风景横图是不是更好",
+  "pos": "no humans, scenery, 0.7::artist:rella::, street, dusk, city lights, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   1216,
+   832
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 10.797000000005937
+ },
+ {
+  "id": "H2s",
+  "kind": "scenery 方图",
+  "look": "A1-1 改 1024×1024",
+  "pos": "no humans, scenery, 0.7::artist:rella::, street, dusk, city lights, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   1024,
+   1024
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 12.48399999999674
+ }
+]
