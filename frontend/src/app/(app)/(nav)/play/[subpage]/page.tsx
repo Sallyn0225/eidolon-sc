@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { AchievementsSubpage } from "@/components/play/AchievementsSubpage";
 import { CalendarSubpage } from "@/components/play/CalendarSubpage";
+import { LettersWallB } from "@/components/letter/prototype/LettersWallB";
 import { CyclesSubpage } from "@/components/play/CyclesSubpage";
 import { GiftsSubpage } from "@/components/play/GiftsSubpage";
 import { giftsFor } from "@/lib/gifts";
@@ -43,4 +44,5 @@ const SUBPAGES: Record<SharedSubpage, (search: SearchParams) => ReactNode> = {
   achievements: () => <AchievementsSubpage />,
   calendar: (search) => <CalendarSubpage who={calendarWho(search)} />,
   cycles: (search) => <CyclesSubpage who={calendarWho(search)} />,
+  letters: () => <LettersWallB />, // PROTOTYPE（prototype/letters-ui）
 };

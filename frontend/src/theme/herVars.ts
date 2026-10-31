@@ -30,6 +30,19 @@ export function herVars(color: string): CSSProperties {
 }
 
 /**
+ * 信（last-letter 分支）上她的颜色：信纸、信封固定浅色，只有一份。封蜡用分享图色带的那一对（原色和上面的字），
+ * 信封上她的名字和署名用浅色模式的 accent（在纸面上写她颜色的字，≥ 4.5）。
+ */
+export function letterVars(color: string): CSSProperties {
+  const { share, accent } = imageColorScale(color);
+  return {
+    "--her-seal": share.banner,
+    "--her-seal-fg": share.onBanner,
+    "--her-letter-ink": accent.light,
+  } as CSSProperties;
+}
+
+/**
  * 分享图（DESIGN.md「分享图」）里她的颜色：页首色带和上面的字（`--her-banner`、`--her-banner-fg`），
  * 和前 3 的排行条（`--her-bar`，按分享图条的底校验）。分享图固定浅色，只有一份。
  */

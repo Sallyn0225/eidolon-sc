@@ -2,6 +2,7 @@
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
+import { LettersCardB } from "@/components/letter/prototype/LettersWallB";
 import { PlayCardLink } from "@/components/play/PlayCardLink";
 import { PlayHeader, PlayShell } from "@/components/play/PlayShell";
 import { useBar } from "@/components/play/useBar";
@@ -68,6 +69,7 @@ export function PlayPage() {
           {rest.map((card) => (
             <PlayCardLink key={card.id} card={card} />
           ))}
+          <LettersCardB />
         </div>
       )}
     </PlayShell>

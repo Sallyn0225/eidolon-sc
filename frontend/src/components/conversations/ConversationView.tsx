@@ -77,6 +77,7 @@ import { EVENT_ICONS } from "./EventIcon";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
 import { PastConversations } from "./PastConversations";
+import { HerLettersC } from "@/components/letter/prototype/HerLettersC";
 import { PhotoBlock } from "./PhotoBlock";
 import { ReadAloudBar, ReadAloudMenu } from "./ReadAloud";
 import { useDirectory, useWide } from "./ConversationDirectory";
@@ -246,6 +247,7 @@ export function ConversationView({
           <p className="truncate text-meta text-muted-foreground">{t.past.heading(pastDay(viewing.at, new Date()))}</p>
         )}
       </div>
+      <HerLettersC character={character} className={headerKey} />
       {phoneKey}
       {trophy && <TrophyCue key={trophy.key} trophy={trophy} isReducedMotion={isReducedMotion} />}
       {/* 礼貌的 live region 一直在，奖杯出现时读「成就，抽奖 +n」；按 key 换节点，同样的 n 再来一次也读 */}

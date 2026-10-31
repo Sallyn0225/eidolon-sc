@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
+import { BoxButtonA } from "@/components/letter/prototype/BoxButtonA";
+import { HerUnreadMarkC } from "@/components/letter/prototype/HerLettersC";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -48,6 +50,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
     <div className="flex h-full flex-col bg-background text-foreground">
       <header className="flex shrink-0 items-center gap-2 pt-3 pr-2 pb-2 pl-4">
         <h1 className="flex-1 text-list-title">{t.title}</h1>
+        <BoxButtonA />
         <ServiceStatusButton />
         <Announcements userId={account?.id ?? null} />
       </header>
@@ -201,6 +204,7 @@ function Row({
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2">
             <span className="min-w-0 flex-1 truncate text-row-name">{character.name}</span>
+            <HerUnreadMarkC characterId={character.id} />
             {((preview && !call) || isPinned) && (
               <span className="flex shrink-0 items-center gap-1 text-meta text-muted-foreground tabular-nums">
                 {isUnseen && preview && !call && (

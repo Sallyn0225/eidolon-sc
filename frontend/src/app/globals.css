@@ -64,6 +64,39 @@
   --font-sans: var(--font-zh), "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   /* 她的日语原文的 LINE Seed JP（--font-ja），缺字时退回中文正文字体。<Ja> 用它。 */
   --font-japanese: var(--font-ja), var(--font-sans);
+  /* 信上她的字：Klee One 的子集（components/letter/fonts，只在信打开时载入），缺字时退回日语字体。 */
+  --font-letter: var(--font-klee), var(--font-japanese);
+  /* 信上的字：日语正文、中文字幕、署名。行高都是信纸一行（--letter-line），字落在横线上。 */
+  --text-letter: 1.125rem;
+  --text-letter--line-height: var(--letter-line);
+  --text-letter-zh: 0.8125rem;
+  --text-letter-zh--line-height: var(--letter-line);
+  --text-letter-signature: 1.375rem;
+  --text-letter-signature--line-height: calc(var(--letter-line) * 2);
+  /* 信上一个字写出来：从淡、带一点洇开的模糊到清楚，稍稍往上落定。 */
+  --animate-ink: ink 0.55s ease-out both;
+  /* 信末的签名从左到右显出来，和 lib/letter 的 SIGNATURE_SECONDS 一样长。 */
+  --animate-sign: sign 1.6s ease-in-out both;
+  @keyframes sign {
+    from {
+      clip-path: inset(0 100% 0 0);
+    }
+    to {
+      clip-path: inset(0 0 0 0);
+    }
+  }
+  @keyframes ink {
+    from {
+      opacity: 0;
+      filter: blur(2.5px);
+      transform: translateY(0.06em);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0);
+    }
+  }
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -124,6 +157,17 @@
   --color-share-muted: var(--share-muted);
   --color-share-rule: var(--share-rule);
   --color-share-track: var(--share-track);
+  /* 停服前最后一版的信（last-letter 分支，lib/letter）：信纸、信封固定浅色、不跟深色模式。
+     她的封蜡、封蜡上的星、信封上的名字和署名由 letterVars() 注入。 */
+  --color-letter-paper: var(--letter-paper);
+  --color-letter-ink: var(--letter-ink);
+  --color-letter-muted: var(--letter-muted);
+  --color-letter-rule: var(--letter-rule);
+  --color-letter-envelope: var(--letter-envelope);
+  --color-letter-envelope-edge: var(--letter-envelope-edge);
+  --color-her-seal: var(--her-seal);
+  --color-her-seal-fg: var(--her-seal-fg);
+  --color-her-letter-ink: var(--her-letter-ink);
 
   /* 字号层级（Typography「Hierarchy」），字重随字号一起给出。 */
   --text-list-title: 1.25rem;
@@ -258,6 +302,13 @@
   --share-muted: #6b6f78;
   --share-rule: #d9d8d2;
   --share-track: #e8e7e2;
+  /* 新增：信纸和信封（last-letter 分支）的固定浅色；字和字幕在纸上 ≥ 4.5，横线、信封边线上不放字。 */
+  --letter-paper: #fbf7ee;
+  --letter-ink: #2b2620;
+  --letter-muted: #6b6359;
+  --letter-rule: #e8dece;
+  --letter-envelope: #f0e6d4;
+  --letter-envelope-edge: #d8c9b0;
   --sidebar: light-dark(oklch(0.985 0 0), oklch(0.205 0 0));
   --sidebar-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
   --sidebar-primary: light-dark(oklch(0.205 0 0), oklch(0.488 0.243 264.376));
@@ -270,6 +321,35 @@
 
 .dark {
   color-scheme: dark;
+}
+
+/* 信（last-letter 分支）：信纸一行的高度，字的行高和横线都按它；宽屏时大一点。 */
+.letter-layer {
+  --letter-line: 2rem;
+}
+@media (width >= 48rem) {
+  .letter-layer {
+    --letter-line: 2.25rem;
+  }
+}
+/* 信纸：一行一条横线，横线随内容滚动；上下各留一行。 */
+.letter-paper {
+  padding-block: var(--letter-line);
+  background-color: var(--letter-paper);
+  background-image: linear-gradient(to bottom, transparent calc(var(--letter-line) - 1px), var(--letter-rule) 0);
+  background-size: 100% var(--letter-line);
+  /* 横线往上挪一点，落在字的下沿，像字写在线上。 */
+  background-position: 0 calc(var(--letter-line) * -0.2);
+  background-attachment: local;
+  color-scheme: light;
+}
+/* 段与段之间空一行。 */
+.letter-paper section + section {
+  margin-top: var(--letter-line);
+}
+/* 信末的签名图占三行高。 */
+.letter-signature {
+  height: calc(var(--letter-line) * 3);
 }
 
 /* 分享图的画布：固定 1080×1350 px，间距刻度钉成 4px，导出的图不随用户的根字号变。 */

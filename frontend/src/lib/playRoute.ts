@@ -6,7 +6,8 @@
 // addresses, lib/settingsCategory).
 
 /** The subpages, one for each card of the first level. */
-export const PLAY_SUBPAGES = ["gifts", "achievements", "calendar", "cycles", "bar"] as const;
+// PROTOTYPE（prototype/letters-ui）：加了 letters，信箱方案 B 的信封墙。
+export const PLAY_SUBPAGES = ["gifts", "achievements", "calendar", "cycles", "bar", "letters"] as const;
 
 export type PlaySubpage = (typeof PLAY_SUBPAGES)[number];
 

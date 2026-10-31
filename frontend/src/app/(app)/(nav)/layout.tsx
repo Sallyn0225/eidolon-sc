@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { NavShell } from "@/components/app/NavShell";
 import { DirectoryProvider } from "@/components/conversations/ConversationDirectory";
+import { LetterProvider } from "@/components/letter/LetterProvider";
 
 /**
  * 导航外壳：对话（列表和她的对话页）和设置共用的 layout（.scratch/app-navigation「路由和外壳」）。
@@ -12,7 +13,10 @@ import { DirectoryProvider } from "@/components/conversations/ConversationDirect
 export default function NavLayout({ children }: { children: ReactNode }) {
   return (
     <DirectoryProvider>
-      <NavShell>{children}</NavShell>
+      {/* PROTOTYPE（prototype/letters-ui）：信箱原型的假数据源和切换条。 */}
+      <LetterProvider>
+        <NavShell>{children}</NavShell>
+      </LetterProvider>
     </DirectoryProvider>
   );
 }

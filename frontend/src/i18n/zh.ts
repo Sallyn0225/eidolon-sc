@@ -464,6 +464,19 @@ export const zh = {
   // 句中带链接的文案用 {名字} 占位，经 interpolate() 换成链接。
 
   /** 全站都要说清的声明（PRODUCT.md「Brand Commitments」）。 */
+  /** 停服前最后一版的信（last-letter 分支，lib/letter）。 */
+  letter: {
+    /** 对话列表页首的信封键，读屏名字。 */
+    reread: (name: string) => `重读${name}的信`,
+    /** 整封信的读屏名字。 */
+    title: (name: string) => `${name}的信`,
+    /** 信封本身是个按钮：读屏名字，和信封下面那行小字。 */
+    open: (name: string) => `拆开${name}的信`,
+    openHint: "拆开",
+    skip: "跳过",
+    mute: "静音",
+    done: "收好",
+  },
   legal: {
     disclaimer: "非官方的粉丝作品，与版权方无关。角色由 AI 扮演。",
     privacy: "隐私政策",

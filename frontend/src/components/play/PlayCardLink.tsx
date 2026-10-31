@@ -6,7 +6,7 @@ import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import type { PlayCard } from "@/lib/playCards";
 import type { PlaySubpage } from "@/lib/playRoute";
 import { cn } from "@/lib/utils";
-import { AchievementsIcon, BarCardIcon, CalendarIcon, CyclesCardIcon, ForwardIcon, GiftIcon } from "@/theme/icons";
+import { AchievementsIcon, BarCardIcon, CalendarIcon, CyclesCardIcon, ForwardIcon, GiftIcon, LetterIcon } from "@/theme/icons";
 
 /** 每张卡的图标：加一张卡就在这里加一行。 */
 const ICONS: Record<PlaySubpage, typeof GiftIcon> = {
@@ -15,6 +15,7 @@ const ICONS: Record<PlaySubpage, typeof GiftIcon> = {
   calendar: CalendarIcon,
   cycles: CyclesCardIcon,
   bar: BarCardIcon,
+  letters: LetterIcon, // PROTOTYPE（prototype/letters-ui）
 };
 
 /**

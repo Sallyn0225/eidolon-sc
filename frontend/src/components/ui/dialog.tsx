@@ -53,17 +53,27 @@ function DialogContent({
   container?: DialogPrimitive.Portal.Props["container"]
   // eidolon: viewer 是点开放大的照片（DESIGN.md「Chat bubbles · 照片」）：整屏压 85% 黑，内容居中放到最大，
   // 右上角白色 ✕。内容以外不接点击，点在压暗的底上就是点了外面，照常关掉。
-  variant?: "default" | "viewer"
+  // eidolon: letter 是停服前最后一版的信（last-letter 分支，components/letter）：整屏，压暗的底和进出场的动画
+  // 都由信自己画（要跟着信封、信纸一起动），这里的底透明，也没有 ✕。
+  variant?: "default" | "viewer" | "letter"
 }) {
   const viewer = variant === "viewer"
+  const letter = variant === "letter"
   return (
     <DialogPortal container={container}>
       {/* eidolon: viewer 的底和照片一样淡 150ms。底先淡完会在照片卸掉前弹回不透明，关的时候整屏闪一下黑。 */}
-      <DialogOverlay className={cn(viewer && "bg-black/85 duration-150 supports-backdrop-filter:backdrop-blur-none")} />
+      <DialogOverlay
+        className={cn(
+          viewer && "bg-black/85 duration-150 supports-backdrop-filter:backdrop-blur-none",
+          letter && "bg-transparent supports-backdrop-filter:backdrop-blur-none"
+        )}
+      />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          viewer
+          letter
+            ? "fixed inset-0 z-50 outline-none"
+            : viewer
             ? "pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4 outline-none duration-150 md:p-10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 *:pointer-events-auto"
             // eidolon: dark:ring-overlay-edge，深色模式下浮层带一条边线（DESIGN.md「The Night Edge Rule」）。
             : "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 dark:ring-overlay-edge duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
@@ -72,7 +82,7 @@ function DialogContent({
         {...props}
       >
         {children}
-        {showCloseButton && (
+        {showCloseButton && !letter && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
             render={

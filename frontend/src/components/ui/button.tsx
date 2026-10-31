@@ -43,6 +43,9 @@ const buttonVariants = cva(
         toast: "rounded-full bg-background text-foreground hover:bg-background/90",
         // eidolon: 统计页好感度分组收起时的「+N」和展开后的收起键（DESIGN.md「统计页」）：和头像一样的圆，中性底、muted 字。
         more: "rounded-full bg-muted text-subtitle text-muted-foreground tabular-nums hover:bg-muted/70 hover:text-foreground",
+        // eidolon: 信（last-letter 分支）读完时信纸上的「收好」：固定浅色的信纸上，墨色胶囊、纸色的字。
+        letter:
+          "rounded-full bg-letter-ink text-letter-paper hover:bg-letter-ink/85 focus-visible:border-transparent focus-visible:ring-letter-ink/40",
       },
       size: {
         default:
