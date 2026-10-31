@@ -1,0 +1,114 @@
+[
+ {
+  "id": "J1-1",
+  "kind": "scenery + japan",
+  "look": "和原型 H2 同提示词同种子，只多 japan：还像不像欧洲、俯瞰",
+  "pos": "no humans, scenery, japan, 0.7::artist:rella::, street, dusk, city lights, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   1216,
+   832
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 7.4529999999999745
+ },
+ {
+  "id": "J1-2",
+  "kind": "scenery + japan",
+  "look": "同上，第二个种子",
+  "pos": "no humans, scenery, japan, 0.7::artist:rella::, street, dusk, city lights, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1357911,
+  "size": [
+   1216,
+   832
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 9.829000000000178
+ },
+ {
+  "id": "J2-1",
+  "kind": "scenery + japan（公园）",
+  "look": "公园秋叶：像不像日本的公园",
+  "pos": "no humans, scenery, japan, 0.7::artist:rella::, park, autumn leaves, bench, tree, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   1216,
+   832
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 6.545999999999822
+ },
+ {
+  "id": "J2-2",
+  "kind": "scenery + japan（公园）",
+  "look": "同上，第二个种子",
+  "pos": "no humans, scenery, japan, 0.7::artist:rella::, park, autumn leaves, bench, tree, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1357911,
+  "size": [
+   1216,
+   832
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 8.782000000000153
+ },
+ {
+  "id": "W1-1",
+  "kind": "posed wide shot",
+  "look": "摆拍 wide shot：人小景大、站在神社前；人有没有被画崩",
+  "pos": "1girl, solo, sakuragi mano, idolmaster shiny colors, 0.7::artist:rella::, brown hair, medium hair, brown eyes, wide shot, shrine, torii, outdoors, casual, standing, peace sign, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 1234567,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 9.827999999999975
+ },
+ {
+  "id": "W1-2",
+  "kind": "posed wide shot",
+  "look": "同上，第二个种子",
+  "pos": "1girl, solo, sakuragi mano, idolmaster shiny colors, 0.7::artist:rella::, brown hair, medium hair, brown eyes, wide shot, shrine, torii, outdoors, casual, standing, peace sign, looking at viewer, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage",
+  "seed": 2468013,
+  "size": [
+   832,
+   1216
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 5.782000000000153
+ },
+ {
+  "id": "K1-1",
+  "kind": "scenery + japan + outdoors + 地面景物",
+  "look": "J1 的街景改写地面能看到的东西：还俯不俯瞰",
+  "pos": "no humans, scenery, japan, outdoors, 0.7::artist:rella::, street, dusk, sidewalk, power lines, vending machine, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1234567,
+  "size": [
+   1216,
+   832
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 9.407000000000153
+ },
+ {
+  "id": "K1-2",
+  "kind": "scenery + japan + outdoors + 地面景物",
+  "look": "同上，第二个种子",
+  "pos": "no humans, scenery, japan, outdoors, 0.7::artist:rella::, street, dusk, sidewalk, power lines, vending machine, rating:general, very aesthetic, masterpiece, no text",
+  "neg": "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra, panties, bra strap, strap slip, see-through, pantyshot, cleavage, 1girl, 1boy, people",
+  "seed": 1357911,
+  "size": [
+   1216,
+   832
+  ],
+  "meta": "元数据 char_captions 0 个；use_coords=False",
+  "took": 11.438000000000102
+ }
+]
