@@ -69,6 +69,7 @@ async def test_the_first_sign_in_with_github_makes_a_user_and_signs_them_in(
         "reach_outs": None,
         "cycles": None,
         "moments": None,
+        "letters": False,
         "sponsor_version": None,
         "deployer_tts": True,
     }

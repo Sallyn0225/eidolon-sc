@@ -39,9 +39,14 @@ from eidolon.activity import ActivityLog
 from eidolon.affinity import Tier, day_of
 from eidolon.data_access import Database
 from eidolon.gifts import Drawn, Given, Gifts, Reward
+from eidolon.letter_prompt import Occasion
 from eidolon.store import keep_call
 
 log = logging.getLogger(__name__)
+
+LetterOccasions = Callable[[sqlite3.Connection, str, list[tuple[str, Occasion]], datetime], None]
+"""Told, in the transaction it happened in, of each character's occasion for a letter the
+user had now (GLOSSARY.md「信」): `Letters.happened`."""
 
 @dataclass(frozen=True)
 class Rewarded:
@@ -80,12 +85,16 @@ class Happenings:
         is_open: Callable[[], bool],
         gifts: Gifts,
         activity: ActivityLog,
+        letters: LetterOccasions | None = None,
     ) -> None:
-        """`is_open` tells whether affinity and gifts are open now."""
+        """`is_open` tells whether affinity and gifts are open now; `letters` is told of the
+        occasions for a letter what happens gives: her affinity first reaching close or
+        intimate (the first two stages of the tier reached unlocked), and her being complete."""
         self._db = db
         self._is_open = is_open
         self._gifts = gifts
         self._activity = activity
+        self._letters = letters
         db.prepare(_open)
         self._launch()
 
@@ -280,11 +289,27 @@ class Happenings:
         if not given:
             return None
         what = [done[r.key] for r in given]
+        if self._letters is not None:
+            self._letters(db, user_id, [o for w in what if (o := _occasion(w))], at)
         return Rewarded(
             sum(r.draws for r in given), sum(r.reset_cards for r in given), at,
             [w for w in what if isinstance(w, Unlocked)],
             [w for w in what if isinstance(w, Completed)],
         )
+
+
+_TIER_OCCASIONS: dict[int, Occasion] = {1: "close", 2: "intimate"}
+"""The occasion for a letter of each stage of the tier reached unlocked."""
+
+
+def _occasion(what: Unlocked | Completed) -> tuple[str, Occasion] | None:
+    """The occasion for a letter a stage unlocked or a character complete is, and whose; None
+    for none."""
+    if isinstance(what, Completed):
+        return what.character_id, "complete"
+    if what.achievement == "tier" and what.character_id and what.stage in _TIER_OCCASIONS:
+        return what.character_id, _TIER_OCCASIONS[what.stage]
+    return None
 
 
 def _open(db: sqlite3.Connection) -> None:

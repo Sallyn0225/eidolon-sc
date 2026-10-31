@@ -42,6 +42,11 @@
                                      extracted audio directory, to the stands' bucket, and
                                      last the manifest of what it has; exits 2 if the
                                      bucket failed, 3 if some files were missing
+    eidolon letter-music upload <dir>
+                                     upload the music under letters the list beside the
+                                     character configuration names, from the deployer's
+                                     directory, to the stands' bucket; exits 2 if the
+                                     bucket failed, 3 if some files were missing
     eidolon reading draft            draft the readings file beside the character
                                      configuration from the characters' sheets and the
                                      world setting, or fill in the phonemes it lacks and
@@ -141,6 +146,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_stand_upload(args))
     if args.command == "bar":
         return asyncio.run(_bar_upload(args))
+    if args.command == "letter-music":
+        return asyncio.run(_letter_music_upload(args))
     if args.command == "reading":
         return _draft_readings(args)
     if args.command == "greeting":
@@ -549,6 +556,49 @@ async def _bar_upload(args: argparse.Namespace) -> int:
     if report.missing:
         print(
             f"{len(report.missing)} 个文件在 {args.audio} 里找不到，没有上传：{'、'.join(report.missing)}",
+            file=sys.stderr,
+        )
+        return 3
+    return 0
+
+
+async def _letter_music_upload(args: argparse.Namespace) -> int:
+    from eidolon.letter_music import (
+        PREFIX,
+        LetterMusicError,
+        letter_music_path,
+        load_letter_music,
+        upload_letter_music,
+    )
+    from eidolon.s3 import Bucket, S3Error, S3Settings
+
+    path = letter_music_path(args.characters or characters_path_from_env())
+    try:
+        music = load_letter_music(path)
+        if not music:
+            raise LetterMusicError(f"找不到信的配乐清单 {path}")
+        settings = S3Settings.from_env(purpose="上传信的配乐")
+    except RuntimeError as e:  # a broken list or none, settings missing
+        print(e, file=sys.stderr)
+        return 1
+    if not args.music.is_dir():
+        print(f"找不到配乐所在的目录 {args.music}", file=sys.stderr)
+        return 1
+    bucket = Bucket(settings)
+    try:
+        report = await upload_letter_music(args.music, music, bucket)
+    except S3Error as e:
+        print(f"上传中断（已上传的不会重复上传，重新运行即可继续）：{e}", file=sys.stderr)
+        return 2
+    finally:
+        await bucket.aclose()
+    print(
+        f"上传 {len(report.uploaded)} 首到 {PREFIX}（{report.uploaded_bytes / 1_000_000:.1f} MB），"
+        f"{report.unchanged} 首存储桶里已有、内容没变，没有上传"
+    )
+    if report.missing:
+        print(
+            f"{len(report.missing)} 个文件在 {args.music} 里找不到，没有上传：{'、'.join(report.missing)}",
             file=sys.stderr,
         )
         return 3
@@ -1245,6 +1295,22 @@ def _parser() -> argparse.ArgumentParser:
         "--characters",
         type=Path,
         help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH），曲目表和音效清单在它旁边",
+    )
+
+    letter_music = commands.add_parser("letter-music", help="管理信的配乐").add_subparsers(
+        dest="action", required=True, metavar="操作"
+    )
+    letter_music_upload = letter_music.add_parser(
+        "upload",
+        help="按角色配置旁边的 letter_music.toml，把目录里每个场合的配乐上传到立绘的存储桶"
+        "（EIDOLON_STAND_S3_*）的 letters/music/ 下，内容没变的不重复上传"
+        "（可重复执行；存储桶出错时退出码为 2，有找不到的文件时为 3）",
+    )
+    letter_music_upload.add_argument("music", type=Path, help="配乐所在的目录，不要放进仓库")
+    letter_music_upload.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH），配乐清单在它旁边",
     )
 
     reading = commands.add_parser("reading", help="管理读音").add_subparsers(

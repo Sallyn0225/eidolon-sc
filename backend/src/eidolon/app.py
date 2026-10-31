@@ -69,6 +69,7 @@ from eidolon.announcements_api import add_announcement_routes
 from eidolon.bar_api import add_bar_routes
 from eidolon.calendar_api import add_calendar_routes
 from eidolon.cycles_api import add_cycle_routes
+from eidolon.letters_api import add_letter_routes
 from eidolon.moments_api import add_moment_routes
 from eidolon.gifts_api import add_gift_routes
 from eidolon.invites_api import add_invite_routes
@@ -444,6 +445,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_schedule_routes(app, backend)
     add_cycle_routes(app, backend)
     add_moment_routes(app, backend)
+    add_letter_routes(app, backend)
     add_city_routes(app, backend)
     add_bar_routes(app, backend)
     add_photo_routes(app, backend)
@@ -634,7 +636,9 @@ def create_app(backend: Backend) -> FastAPI:
     async def latest_conversations(user_id: UserId) -> list[dict]:
         """For the conversation list: each character's newest conversation with the user, the
         last thing in it, a message, a conversation event or a reach-out (null while it has
-        none), and whether it has a reach-out the user has not seen, in one request."""
+        none), whether it has a reach-out the user has not seen, and whether she has a letter
+        to the user they have not read, in one request."""
+        unread = await backend.letters.unread_from(user_id)
         return [
             {
                 "character_id": c.character_id,
@@ -642,6 +646,7 @@ def create_app(backend: Backend) -> FastAPI:
                 "created_at": c.created_at,
                 "last_message": last_shown(last),
                 "unseen_reach_out": unseen,
+                "unread_letter": c.character_id in unread,
             }
             for c, last, unseen in await store.latest_conversations(user_id)
         ]

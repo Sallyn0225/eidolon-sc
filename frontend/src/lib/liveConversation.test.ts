@@ -2631,7 +2631,7 @@ describe("LiveConversation: what the list shows newer", () => {
   /** The list's line for her: her conversation `id`, its last line said at `at`, a reach-out. */
   function listedAs(at: string, id = "c1"): LatestConversation {
     const last = { role: "character" as const, text: null, ja: "", zh: "", created_at: at, reach_out: true as const };
-    return { character_id: "hikari", conversation_id: id, created_at: "2026-09-27T00:00:00Z", last_message: last, unseen_reach_out: true };
+    return { character_id: "hikari", conversation_id: id, created_at: "2026-09-27T00:00:00Z", last_message: last, unseen_reach_out: true, unread_letter: false };
   }
 
   /** Her conversation, its record in the backend `now()` as it is then, each reading counted. */

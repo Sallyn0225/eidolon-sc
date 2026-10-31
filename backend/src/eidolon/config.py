@@ -481,6 +481,10 @@ class Settings:
     reach_outs: bool = False
     """Whether characters reach out to users (GLOSSARY.md「搭话」), on the deployer's chat
     model; off unless `.env` turns it on, and the admin console may override it."""
+    letters: bool = False
+    """Whether characters write letters on their occasions (GLOSSARY.md「信」), on the
+    deployer's chat model; off unless `.env` turns it on, and the admin console may override
+    it."""
     moments: bool = False
     """Whether characters post moments (GLOSSARY.md「朋友圈」), on the deployer's chat model;
     off unless `.env` turns it on, and the admin console may override it."""
@@ -603,6 +607,7 @@ class Settings:
             exempting_keys=exempting_keys_from_env(),
             affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS", default=True),
             reach_outs=_switch("EIDOLON_REACH_OUTS"),
+            letters=_switch("EIDOLON_LETTERS"),
             moments=_switch("EIDOLON_MOMENTS"),
             schedule=_switch("EIDOLON_SCHEDULE", default=True),
             cycles=_switch("EIDOLON_CYCLES", default=True),

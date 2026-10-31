@@ -557,9 +557,11 @@ def build_faked(
     from `emotion_judge`'s, either judging both if only one is given. With a judge
     script, `.env` has the judge model `FAKE_JUDGE` unless it has one. Any other keyword
     is an outside service passed on to `build`; the weather and QWeather are fakes failing
-    by default, so that no test asks the real ones as she talks."""
+    by default, so that no test asks the real ones as she talks, and Fish Audio's HTTP API a
+    `FakeFishAudio`, so that none asks it as she writes a letter."""
     services.setdefault("weather_transport", FakeWeather(failing=True).transport())
     services.setdefault("qweather_transport", FakeQWeather(failing=True).transport())
+    services.setdefault("fish_transport", httpx.MockTransport(FakeFishAudio().handle))
     clients = clients or FakeServiceClients()
     if llm is not None:
         clients.llm = llm

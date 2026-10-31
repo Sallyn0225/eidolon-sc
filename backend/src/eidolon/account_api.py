@@ -387,7 +387,8 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         console, the exempting keys now (GLOSSARY.md「免限额密钥」), in a fixed order, and
         whether they have their own switch for reach-outs on (GLOSSARY.md「搭话」), None where
         the deployer has reach-outs off, likewise for cycles (GLOSSARY.md「周期」) and for
-        moments (GLOSSARY.md「朋友圈」), the version of the sponsor code (GLOSSARY.md「赞赏」)
+        moments (GLOSSARY.md「朋友圈」), whether the deployer has letters on (GLOSSARY.md「信」),
+        the version of the sponsor code (GLOSSARY.md「赞赏」)
         while users are shown it, else None, and whether the deployer has a key for speech synthesis now, which reads her
         words aloud to those who bring none of their own (GLOSSARY.md「朗读」)."""
         sponsor = await backend.sponsor.state()
@@ -408,6 +409,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             "reach_outs": reach_outs,
             "cycles": cycles,
             "moments": moments,
+            "letters": backend.config.letters_on,
             "sponsor_version": sponsor.version,
             "deployer_tts": backend.config.has_service("tts"),
         }

@@ -153,6 +153,7 @@ RERANK = "rerank"
 LIMITS = "limits"
 AFFINITY = "affinity"
 REACH_OUTS = "reach_outs"
+LETTERS = "letters"
 MOMENTS = "moments"
 SCHEDULE = "schedule"
 CYCLES = "cycles"
@@ -763,6 +764,22 @@ class _ReachOuts(_Item):
         return current | change
 
 
+class _Letters(_Item):
+    """Whether characters write letters on their occasions (GLOSSARY.md「信」), as `.env` has
+    it (off by default); not tried."""
+
+    name = LETTERS
+    fields = ("enabled",)
+
+    def env(self) -> Values:
+        return {"enabled": self.c.settings.letters}
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        if not isinstance(change.get("enabled"), bool):
+            raise ConfigInvalid(f"信需要是 true 或 false，而不是 {change.get('enabled')!r}")
+        return current | change
+
+
 class _Moments(_Item):
     """Whether characters post moments (GLOSSARY.md「朋友圈」), as `.env` has it (off by
     default), how many moments each user may have a day, a whole number from 1 up, which
@@ -1080,7 +1097,7 @@ class LiveConfig:
                 # The proxy first: as the server starts, the services are tried through it.
                 _Proxy(self), _ChatLLM(self), _MemoryLLM(self), _TTS(self), _STT(self),
                 _Image(self), _Judge(self), _JudgeThresholds(self), _Rerank(self),
-                _Limits(self), _Affinity(self), _ReachOuts(self), _Moments(self), _QWeather(self), _Schedule(self),
+                _Limits(self), _Affinity(self), _ReachOuts(self), _Letters(self), _Moments(self), _QWeather(self), _Schedule(self),
                 _Cycles(self), _Bar(self), _ServiceStatus(self), _Registration(self),
             )
         }
@@ -1201,6 +1218,11 @@ class LiveConfig:
         """The deployer's QWeather account in effect now; None without one."""
         values = self.effective(QWEATHER)
         return _qweather(values) if all(values.get(f) for f in QWEATHER_FIELDS) else None
+
+    @property
+    def letters_on(self) -> bool:
+        """Whether characters write letters on their occasions now."""
+        return self.effective(LETTERS)["enabled"]
 
     @property
     def schedule_on(self) -> bool:

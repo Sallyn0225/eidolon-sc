@@ -2,6 +2,8 @@
 // 按界面分组；带参数的句子写成函数，参数的位置由各语言自己决定。
 // 术语以 GLOSSARY.md 为准（对话、通话、通话层、麦克风静音、只看文字、印象色……）。
 
+import type { Occasion } from "@/lib/letter";
+
 /** 思考强度和额外请求参数的说明：后台的模型和设置页的自带 LLM 共用，措辞保持一致。 */
 const reasoningEffortHints = {
   effort:
@@ -458,6 +460,50 @@ export const zh = {
         body: "浏览器没有允许本页使用麦克风，或者找不到麦克风。在地址栏旁的权限设置里允许麦克风，然后重拨。",
       },
     },
+  },
+
+  /** 信（GLOSSARY.md「信」，lib/letter）。 */
+  letter: {
+    /** 对话列表页首的信封键，读屏名字；有没读过的信时换一句。 */
+    box: "信",
+    boxUnread: "信，有没读过的",
+    /** 信封键点开的列表的标题，和没有信时的一行。 */
+    listTitle: "信",
+    none: "还没有信",
+    /** 所有的信里，没读过的那一组的标题；其余按月分组，组名是月份。 */
+    unread: "没读过",
+    /** 她的对话页页首、电话键旁的信封键：读屏名字，有没读过的信时换一句；点开的标题是 `title`。 */
+    hers: (name: string) => `${name}的信`,
+    hersUnread: (name: string) => `${name}的信，有没读过的`,
+    /** 对话列表上她那一行名字后面的小信封，读屏读这一句。 */
+    unreadMark: "有没读过的信",
+    /** 列表里一封信的右键（长按）菜单，和确认框。 */
+    remove: "删除这封信",
+    removeTitle: (name: string) => `删除${name}的这封信？`,
+    removeDescription: "信和她念信的声音都会彻底删除，无法恢复。",
+    removeConfirm: "删除",
+    loadFailed: "信没能载入",
+    /** 信封上写的场合，越短越好；几个场合合在一封时用「、」连起来。 */
+    occasions: {
+      close: "更近了一步",
+      intimate: "亲密",
+      complete: "集齐",
+      her_birthday: "她的生日",
+      producer_birthday: "你的生日",
+      anniversary: "相识纪念",
+    } satisfies Record<Occasion, string>,
+    /** 列表里一枚信封的读屏名字。 */
+    row: (name: string, occasion: string, day: string, isUnread: boolean) =>
+      `${name}的信，${occasion}，${day}${isUnread ? "，没读过" : ""}`,
+    /** 整封信的读屏名字。 */
+    title: (name: string) => `${name}的信`,
+    /** 信封本身是个按钮：读屏名字，和信封下面那行小字。 */
+    open: (name: string) => `拆开${name}的信`,
+    openHint: "拆开",
+    /** 读信时右上角的静音键，读屏名字（按下去是静音）。 */
+    mute: "静音",
+    skip: "跳过",
+    done: "收好",
   },
 
   // —— 以下是登录、同意、设置、记忆和静态页（ticket 06）——
@@ -1475,6 +1521,10 @@ export const zh = {
           title: "搭话",
           hint: "打开后，用户一阵子没来，角色会在当前对话里先说几句。用的是部署者的对话模型，花费由部署者出，自带 LLM 的用户也一样。保存后下一分钟起生效。",
         },
+        letters: {
+          title: "信",
+          hint: "打开后，角色和用户的好感度第一次升到亲近、亲密，或者集齐这位角色时，她会给用户写一封信。用的是部署者的对话模型，花费由部署者出，自带 LLM 的用户也一样。关掉后不再写，已经写好的信用户照样能看。保存后下一分钟起生效。",
+        },
         moments: {
           title: "朋友圈",
           hint: "打开后，和用户聊过的角色会在他的朋友圈里发动态。用的是部署者的对话模型，花费由部署者出，自带 LLM 的用户也一样。保存后下一分钟起生效。",
@@ -1562,6 +1612,7 @@ export const zh = {
       itemFields: {
         chat_llm: { reasoning_effort: "文字的思考强度" },
         reach_outs: { enabled: "搭话", per_day: "每位用户每天最多几次" },
+        letters: { enabled: "信" },
         moments: {
           enabled: "朋友圈",
           per_day: "每位用户每天最多几条",

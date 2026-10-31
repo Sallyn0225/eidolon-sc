@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   currentNavItem,
   departure,
+  isConversationPage,
   isGiftsSubpageInView,
   isInShell,
   isTyping,
@@ -56,6 +57,13 @@ describe("在不在导航外壳里", () => {
 
   it("别的网站上的网址不算，哪怕路径一样", () => {
     expect(isInShell("https://github.com/conversations")).toBe(false);
+  });
+});
+
+describe("是不是她的对话页（信不在上面弹）", () => {
+  it("她的对话页是，别的页面不是", () => {
+    expect(isConversationPage("/conversation/mano")).toBe(true);
+    expect(isConversationPage("/conversations")).toBe(false);
   });
 });
 

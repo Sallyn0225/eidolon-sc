@@ -45,6 +45,14 @@ describe("主题对比度", () => {
     expect(pair("--share-muted", "--share-paper", "light")).toBeGreaterThanOrEqual(4.5);
   });
 
+  // 信（GLOSSARY.md「信」）：信纸、信封固定浅色。横线和信封边线上不放字，不另测。列表里的小信封上写着场合和日期（次要字）。
+  it("信上的字和字幕在信纸上、小信封上的字在信封上都 ≥ 4.5", () => {
+    expect(pair("--letter-ink", "--letter-paper", "light")).toBeGreaterThanOrEqual(4.5);
+    expect(pair("--letter-muted", "--letter-paper", "light")).toBeGreaterThanOrEqual(4.5);
+    expect(pair("--letter-ink", "--letter-envelope", "light")).toBeGreaterThanOrEqual(4.5);
+    expect(pair("--letter-muted", "--letter-envelope", "light")).toBeGreaterThanOrEqual(4.5);
+  });
+
   describe("深色浮层", () => {
     it("浮层比页面高一层色调", () => {
       // 和黑色的对比度越大就越亮。

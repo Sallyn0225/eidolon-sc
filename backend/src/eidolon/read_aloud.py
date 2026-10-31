@@ -13,7 +13,10 @@ readings have them (`readings`).
 On the user's own key for Fish Audio, where their browser brings it, with the model they
 chose, counting towards nothing; else on the deployer's, with the model the live
 configuration has now, counting towards the user's limit on read-alouds (GLOSSARY.md「限额」),
-given back if it was not voiced (`own_keys.OwnKeys.for_read_aloud`). Each is one service call
+given back if it was not voiced (`own_keys.OwnKeys.for_read_aloud`). A letter she wrote she
+says in her voice the same way, a block at a time, though it is kept, as no read-aloud is, and
+on the deployer's key whatever the user brings, counting towards nothing
+(`ReadAloud.said_on_deployers`, `letters`). Each is one service call
 of speech synthesis, recorded on its own, under no turn (`activity.timed`), billed for what
 Fish Audio was given as a call's speech synthesis is (`call.CallMeter`); it has no activity
 record of its own. Fish Audio failing on the user's own key says why, the key masked
@@ -118,6 +121,16 @@ class ReadAloud:
                 raise
         finally:
             keys.release()
+
+    async def said_on_deployers(
+        self, tts: str, model: FishAudioModel, voice_id: str, ja: str
+    ) -> bytes:
+        """`ja`, her Japanese with its delivery cues, said in her voice `voice_id` on the
+        deployer's key `tts` with `model`, as mp3, as a read-aloud is but counting towards
+        nothing: for what she wrote outside any turn, its service call recorded under the
+        record current. Raises ReadAloudFailed if Fish Audio fails."""
+        text = spoken_by(voiced(ja), model)
+        return await self._voice(ReadAloudKeys(tts, model, own=False), voice_id, text)
 
     async def _voice(self, keys: ReadAloudKeys, voice_id: str, text: str) -> bytes:
         origin = Origin("tts", host(FISH_TTS_HTTP_URL), keys.tts_model, keys.own)

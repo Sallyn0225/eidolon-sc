@@ -1,0 +1,38 @@
+# 信的配乐清单（GLOSSARY.md「信」，后端 letter_music.py）。配乐本身不进仓库：部署者用
+# `eidolon letter-music upload <目录>` 把目录里这里写的文件传到立绘的存储桶 letters/music/ 下；
+# 没传的部署，信照样能看，只是没有配乐。
+#
+# 每个场合一段：
+#   file    部署者目录里这首的文件名（.m4a、.mp3、.ogg 等）
+#   climax  高潮从第几秒开始，签名的那一刻落在这里；没有高潮的不写，从头放、签名写完几秒后淡出
+#   fade    高潮之后放到第几秒淡出；不写就放到结束
+#   loop    太短的那首：[起点, 终点] 这段循环，直到高潮能落在签名上或之后
+#
+# 数值来自 2026-10-31 的试听，换了曲子要重新定。
+
+[intimate]  # 升到亲密：341 秒，同一段放了两遍，只用第一遍
+file = "升到亲密.m4a"
+climax = 101
+fade = 148
+
+[close]  # 升到亲近：122 秒
+file = "升到亲近.m4a"
+climax = 71
+
+[complete]  # 集齐：229 秒
+file = "集齐.m4a"
+climax = 155
+fade = 200
+
+[her_birthday]  # 她的生日：79 秒，太短
+file = "她的生日.m4a"
+climax = 64
+loop = [3, 60]
+
+[producer_birthday]  # 制作人生日：155 秒，全曲一样响，不卡点
+file = "制作人生日.m4a"
+
+[anniversary]  # 相识纪念：267 秒，每 64 秒一轮，取最后一轮
+file = "相识纪念.m4a"
+climax = 212
+fade = 260

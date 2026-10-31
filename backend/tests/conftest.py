@@ -26,6 +26,7 @@ from eidolon.config import LLMSettings, Settings
 from eidolon.data_access import Database
 from eidolon.drink_catalog import DRINKS_FILE
 from eidolon.gift_catalog import GIFTS_FILE
+from eidolon.letter_music import LETTER_MUSIC_FILE
 from eidolon.identity import Identity
 from eidolon.job_list import JOBS_FILE
 from eidolon.place_pool import PLACES_FILE
@@ -134,6 +135,7 @@ AVATAR = b"\x89PNG\r\n\x1a\n fake avatar"
 SCSP_AVATAR = b"\xff\xd8\xff fake SCSP avatar"
 BACKGROUND = b"\xff\xd8\xff fake background"
 REPO_GIFTS = Path(__file__).parents[2] / "characters" / GIFTS_FILE
+REPO_LETTER_MUSIC = Path(__file__).parents[2] / "characters" / LETTER_MUSIC_FILE
 REPO_JOBS = Path(__file__).parents[2] / "characters" / JOBS_FILE
 REPO_DRINKS = Path(__file__).parents[2] / "characters" / DRINKS_FILE
 REPO_BAR_VISITS = Path(__file__).parents[2] / "characters" / BAR_VISITS_FILE
@@ -149,9 +151,10 @@ wanting one without alcohol."""
 
 class CharacterConfig:
     """Writes a character configuration directory, the way an administrator would, with the
-    repository's gift catalog, job list, drink catalog, bar reasons and topics, bar lines and
-    place pool beside it unless a test writes its own (`gifts.toml`, `jobs.toml`,
-    `drinks.toml`, `bar_visits.toml`, `bar_lines.toml`, `places.toml`). The reasons and
+    repository's gift catalog, job list, drink catalog, bar reasons and topics, bar lines,
+    place pool and letters' music list beside it unless a test writes its own (`gifts.toml`,
+    `jobs.toml`, `drinks.toml`, `bar_visits.toml`, `bar_lines.toml`, `places.toml`,
+    `letter_music.toml`). The reasons and
     topics are written for every character, none left out (`not_for`), and the places for
     no one (`idols`), as the repository's name characters a test may not have."""
 
@@ -265,6 +268,8 @@ class CharacterConfig:
             repository = REPO_PLACES.read_text(encoding="utf-8")
             anyones = re.sub(r"^idols = \[[^]]*\]\n", "", repository, flags=re.M)
             places.write_text(anyones, encoding="utf-8")
+        if not (music := self.directory / LETTER_MUSIC_FILE).exists():
+            music.write_bytes(REPO_LETTER_MUSIC.read_bytes())
         return self
 
     def write(self, relative: str, content: str | bytes) -> None:

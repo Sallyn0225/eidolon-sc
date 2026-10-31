@@ -16,6 +16,7 @@ import {
 import { UnseenDot } from "@/components/app/AchievementLine";
 import { FailureNotice, SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
+import { HerLetterButton } from "@/components/letter/LetterButton";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import {
@@ -98,6 +99,7 @@ const noSubscription = () => () => {};
  * 成组的 22px 圆角气泡，实底的输入栏。对话的状态全在 LiveConversation 里，这里只画它的快照、把操作交给它。
  * 整个子树注入她的颜色（herVars），浮层（更多菜单）的 container 指回这棵子树。
  *
+ * 她写过信时，电话键左边一个信封键（GLOSSARY.md「信」，`HerLetterButton`），点开是她的信。
  * 页首的电话键打开通话层并开始呼叫（spec「通话层」）；通话层可以收起回到这里，页首下面出现通话条，
  * 电话键变成实心的「回到通话」。对话的实时状态（连同通话）由导航外壳持有（ADR-0018）：这一页打开时向外壳要她那一份，
  * 离开时交回；通话中离开这一页，通话留在外壳里，回来时一切照旧。她的声音、电话本身的声音和切换麦克风的面板也在外壳里。
@@ -246,6 +248,7 @@ export function ConversationView({
           <p className="truncate text-meta text-muted-foreground">{t.past.heading(pastDay(viewing.at, new Date()))}</p>
         )}
       </div>
+      <HerLetterButton character={character} className={headerKey} />
       {phoneKey}
       {trophy && <TrophyCue key={trophy.key} trophy={trophy} isReducedMotion={isReducedMotion} />}
       {/* 礼貌的 live region 一直在，奖杯出现时读「成就，抽奖 +n」；按 key 换节点，同样的 n 再来一次也读 */}

@@ -27,6 +27,11 @@ function conversationOf(path: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/** Whether `href` is a character's conversation page (her letter does not pop up over it, lib/letter). */
+export function isConversationPage(href: string): boolean {
+  return conversationOf(pathOf(href).path) !== null;
+}
+
 /** The play page: its first level and each of its subpages. */
 function isPlay(path: string): boolean {
   return path === PLAY_ROOT || playSubpage(path) !== null;

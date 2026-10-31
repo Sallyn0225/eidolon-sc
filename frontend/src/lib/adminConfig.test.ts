@@ -484,8 +484,17 @@ describe("schedule", () => {
 });
 
 describe("cycles and the bar", () => {
-  it("are cards of limits and play: moments after reach-outs, cycles and the bar after the schedule", () => {
-    expect(TAB_ITEMS.limits).toEqual(["limits", "affinity", "reach_outs", "moments", "schedule", "cycles", "bar"]);
+  it("are cards of limits and play: letters and moments after reach-outs, cycles and the bar after the schedule", () => {
+    expect(TAB_ITEMS.limits).toEqual([
+      "limits",
+      "affinity",
+      "reach_outs",
+      "letters",
+      "moments",
+      "schedule",
+      "cycles",
+      "bar",
+    ]);
   });
 });
 

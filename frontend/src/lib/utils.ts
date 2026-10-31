@@ -34,6 +34,10 @@ export const cn = createCn({
         "share-total-md",
         "share-total-sm",
         "share-total-xs",
+        // 信（GLOSSARY.md「信」）。
+        "letter",
+        "letter-zh",
+        "letter-signature",
       ],
       radius: ["bubble", "bubble-inner"],
       spacing: ["list-avatar", "bubble-avatar", "call-dock-control", "call-bar"],

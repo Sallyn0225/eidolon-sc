@@ -6,12 +6,15 @@ import { SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { LetterButton, UnreadLetterMark } from "@/components/letter/LetterButton";
+import { useLetters } from "@/components/letter/LetterProvider";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
 import { arrange, dayOf, previewOf, type ListRow, type Preview } from "@/lib/conversationList";
+import { unreadFrom } from "@/lib/letter";
 import { pin, setShown, unpin } from "@/lib/listPreferences";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
@@ -27,9 +30,10 @@ import { useCallTime } from "./useCallTime";
 const t = copy.conversationList;
 
 /**
- * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题、服务状态和公告铃铛，下面一个按名字
+ * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题、信封键（GLOSSARY.md「信」）、服务状态和公告铃铛，下面一个按名字
  * 或组合找人的搜索框，右边是筛选按钮（`ListFilter`）；每位角色一行（56px 头像、名字和时间一行，最后一句一行），
- * 选中行铺中性的 bg-muted；有人被隐藏时最后一行是「已隐藏 n 位」。她有没看过的搭话时，时间前面一个她颜色的小圆点，当前对话正显示着的那位不标。显示谁、按什么顺序由 `arrange` 决定：置顶的在前，最近有过往来的在上面；隐藏的不显示，
+ * 选中行铺中性的 bg-muted；有人被隐藏时最后一行是「已隐藏 n 位」。她有没看过的搭话时，时间前面一个她颜色的小圆点，当前对话正显示着的那位不标；
+ * 她有没读过的信时，名字后面一枚小信封。显示谁、按什么顺序由 `arrange` 决定：置顶的在前，最近有过往来的在上面；隐藏的不显示，
  * 但搜索时照样能搜到，当前打开的和正在通话的始终留下。一整列不按组合分段，换位置时直接跳过去、不做动画。
  * 列表栏是实底，不在她的子树里。宽屏时在左栏，窄屏时占满一页。
  */
@@ -38,8 +42,10 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const now = useMinute();
   const [query, setQuery] = useState("");
   const [isFilterOpen, setFilterOpen] = useState(false);
+  const { letters } = useLetters();
   const keep = [selectedId, call?.characterId].filter((id): id is string => !!id);
-  const shown = characters && arrange(characters, latest, { preferences, query, keep, onScreen });
+  const unreadLetters = unreadFrom(letters);
+  const shown = characters && arrange(characters, latest, { preferences, query, keep, onScreen, unreadLetters });
   const hiddenCount = shown?.hiddenCount ?? 0;
   // 搜索时隐藏的人照样出现，「已隐藏 n 位」和全部隐藏的空状态只在没有搜索时出现。
   const showsHidden = query.trim() === "" && hiddenCount > 0;
@@ -48,6 +54,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
     <div className="flex h-full flex-col bg-background text-foreground">
       <header className="flex shrink-0 items-center gap-2 pt-3 pr-2 pb-2 pl-4">
         <h1 className="flex-1 text-list-title">{t.title}</h1>
+        <LetterButton />
         <ServiceStatusButton />
         <Announcements userId={account?.id ?? null} />
       </header>
@@ -146,7 +153,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
  * 右键、触屏长按、菜单键或 Shift+F10 打开行菜单（中性色）：置顶或取消置顶，在列表中隐藏或显示。
  */
 function Row({
-  row: { character, isPinned, isHidden, isUnseen },
+  row: { character, isPinned, isHidden, isUnseen, hasUnreadLetter },
   preview,
   call,
   isSelected,
@@ -200,7 +207,10 @@ function Row({
         <MarkedAvatar name={character.name} src={character.avatar_url} size="list" />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2">
-            <span className="min-w-0 flex-1 truncate text-row-name">{character.name}</span>
+            <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              <span className="min-w-0 truncate text-row-name">{character.name}</span>
+              {hasUnreadLetter && <UnreadLetterMark />}
+            </span>
             {((preview && !call) || isPinned) && (
               <span className="flex shrink-0 items-center gap-1 text-meta text-muted-foreground tabular-nums">
                 {isUnseen && preview && !call && (

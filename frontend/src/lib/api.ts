@@ -18,6 +18,7 @@ import type { LLMOffer, LLMProvider } from "@/lib/llmProviders";
 import type { EffortHint } from "@/lib/reasoningEffort";
 import type { ServedBody } from "@/lib/barMixer";
 import type { VisitEvent } from "@/lib/barVisit";
+import type { Letter, LetterSummary } from "@/lib/letter";
 import type { Rewarded } from "@/lib/rewards";
 import { detectTimezone } from "@/lib/timezone";
 import type { Speaking } from "@/lib/call";
@@ -118,14 +119,16 @@ export type LastMessage =
   | Pick<ConversationEvent, "type" | "kind" | "created_at" | "gift_name" | "first_day" | "days_ago">
   | null;
 
-/** A character's newest conversation with the user, the last thing in it, and whether it has a
- * reach-out the user has not seen (GLOSSARY.md「没看过的搭话」), for the conversation list. */
+/** A character's newest conversation with the user, the last thing in it, whether it has a
+ * reach-out the user has not seen (GLOSSARY.md「没看过的搭话」), and whether she has a letter to the
+ * user they have not read (GLOSSARY.md「没读过的信」), for the conversation list. */
 export type LatestConversation = {
   character_id: string;
   conversation_id: string;
   created_at: string;
   last_message: LastMessage;
   unseen_reach_out: boolean;
+  unread_letter: boolean;
 };
 
 /** One of her conversations as the past conversations panel lists it; `title` is its conversation
@@ -496,6 +499,8 @@ export type Account = {
   reach_outs: boolean | null;
   cycles: boolean | null;
   moments: boolean | null;
+  /** Whether the deployer has letters on (GLOSSARY.md「信」); the letters written stay to be read either way. */
+  letters: boolean;
   sponsor_version: string | null;
   /** Whether the deployer has a key for speech synthesis now: her words are read aloud on it for those
    * who keep none of their own in this browser (GLOSSARY.md「朗读」). */
@@ -803,6 +808,33 @@ export async function deleteMomentComment(id: number): Promise<void> {
 export async function getMoments(): Promise<Moment[]> {
   const body: { moments: Moment[] } = await json(await api("/api/moments"));
   return body.moments;
+}
+
+/** The user's letters (GLOSSARY.md「信」), the latest first. */
+export async function listLetters(): Promise<LetterSummary[]> {
+  const body: { letters: LetterSummary[] } = await json(await api("/api/letters"));
+  return body.letters;
+}
+
+/** One of the user's letters, to read. */
+export async function getLetter(id: number): Promise<Letter> {
+  return json(await api(`/api/letters/${id}`));
+}
+
+/** Has the letter read, on every device. */
+export async function markLetterRead(id: number): Promise<void> {
+  const res = await api(`/api/letters/${id}/read`, { method: "PUT" });
+  if (!res.ok) await json(res);
+}
+
+/** Has the letter popped up, on every device, so it does not again. */
+export async function markLetterPopped(id: number): Promise<void> {
+  await expectNoContent(await api(`/api/letters/${id}/popped`, { method: "PUT" }));
+}
+
+/** Deletes the letter, and her voice reading it, for good. */
+export async function deleteLetter(id: number): Promise<void> {
+  await expectNoContent(await api(`/api/letters/${id}`, { method: "DELETE" }));
 }
 
 /** Whether a moment, or her reply to the user's comment, has come out since they last read the

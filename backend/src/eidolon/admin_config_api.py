@@ -31,6 +31,7 @@ from eidolon.live_config import (
     JUDGE_THRESHOLDS,
     LIMITS,
     MEMORY_LLM,
+    LETTERS,
     MOMENTS,
     PROXY,
     QWEATHER,
@@ -194,6 +195,13 @@ class ReachOutsInput(BaseModel):
     per_day: Any
 
 
+class LettersInput(BaseModel):
+    """Whether characters write letters on their occasions, true or false; checked by the
+    live configuration."""
+
+    enabled: Any
+
+
 class MomentsInput(BaseModel):
     """Whether characters post moments, true or false, how many a day each user at most, a
     whole number from 1 up, which map their places link to, and how many of each user's
@@ -282,6 +290,7 @@ INPUTS: dict[str, type[BaseModel]] = {
     LIMITS: LimitsInput,
     AFFINITY: AffinityInput,
     REACH_OUTS: ReachOutsInput,
+    LETTERS: LettersInput,
     MOMENTS: MomentsInput,
     QWEATHER: QWeatherInput,
     SCHEDULE: ScheduleInput,

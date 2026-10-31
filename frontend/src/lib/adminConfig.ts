@@ -30,6 +30,7 @@ export type ItemName =
   | "limits"
   | "affinity"
   | "reach_outs"
+  | "letters"
   | "moments"
   | "qweather"
   | "schedule"
@@ -104,7 +105,7 @@ export const TAB_ITEMS: Record<ConfigTab, ItemName[]> = {
   weather: ["qweather"],
   network: ["proxy"],
   status: ["service_status"],
-  limits: ["limits", "affinity", "reach_outs", "moments", "schedule", "cycles", "bar"],
+  limits: ["limits", "affinity", "reach_outs", "letters", "moments", "schedule", "cycles", "bar"],
   registration: ["registration"],
   sponsor: [],
   prices: [],
@@ -359,6 +360,13 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
       { name: "enabled", kind: "switch" },
       { name: "per_day", kind: "positive" },
     ],
+    tried: false,
+  },
+  // 信（GLOSSARY.md「信」）：只有一个总开关。不试调。
+  letters: {
+    rows: ["enabled"],
+    secrets: [],
+    form: [{ name: "enabled", kind: "switch" }],
     tried: false,
   },
   // 朋友圈（GLOSSARY.md「朋友圈」）：总开关，每位用户每天合计最多几条，地名点开跳哪家地图，每位用户每天她最多回几条评论。不试调。

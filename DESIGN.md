@@ -365,9 +365,10 @@ components:
 ### Conversation list
 - 行就是行，不用卡片包。每行：头像（56px，无描边）、名字、时间、最后一句（她的日语，或「你：…」；是一条对话事件时，14px muted 的图标加原文，如「{角色名}挂断了电话」、送礼记录是 `GiftIcon` 加「你送给{角色名}一份{礼物名}」，不加「你：」，时间写事件的时间，也按它排序；只有一条送礼记录的对话也这样显示；她最后那条回复带着发出来了的照片时，她的话前面加一个 14px muted 的相机图标 `PhotoIcon`，写法同对话事件的图标，读屏读「照片：」，照片还在生成、没发出来的不加）。最后一句可以是她的搭话（GLOSSARY.md「搭话」），写法和她的话一样，她跟着排上去。
 - **没看过的搭话**：她最新的对话里有没看过的搭话时，时间前面一个 8px 的正圆，`--her-mark`（列表栏不在她的子树里，只在这个圆点上套她的颜色变量），读屏读「有没看过的搭话」。不出数字：她搭过话就等制作人回，一段对话里最多一条没看过的。名字和最后一句不加深。她的当前对话正显示在对话页上时她那一行不标（搭话直接出现在消息区底部，算看过），在那一页看她的历史对话时照常标；打开她的对话（任何设备上）圆点就消失。标签页在前台时列表每 60 秒拉一次、切回标签页时马上拉一次，这一行就地更新。
+- **没读过的信**：她有没读过的信时，名字后面一枚 14px 的 `LetterIcon`，`text-foreground`（不用她的颜色：信封键的点也是前景色），读屏读「有没读过的信」。正显示着她的对话时照样标（信不在对话里）。在任何设备上拆开就消失；她又写了一封、在别处读了、删了，跟着列表每 60 秒的那次轮询更新。
 - **Selected**：`bg-muted`；悬停 `bg-muted/60`。通话中该行描述换成「通话中 mm:ss」/「正在呼叫…」。
 - 底部没有免责声明（搬进了设置「关于」）。
-- **页首**：左边「对话」大标题，右边 ghost `icon-lg` 图标键：服务状态（`ServiceStatusIcon`，即 Lucide `Activity`）和公告铃铛（`AnnouncementsBellIcon`，即 Lucide `Bell`），两种屏宽一样。没有更多菜单和 GitHub 键：设置在导航里，记忆从设置进，GitHub 在导航栏底部（电脑）和设置「关于」里。
+- **页首**：左边「对话」大标题，右边 ghost `icon-lg` 图标键：信封键（`LetterIcon`，部署者开着信、或者用户已经有信时才有，见「信」）、服务状态（`ServiceStatusIcon`，即 Lucide `Activity`）和公告铃铛（`AnnouncementsBellIcon`，即 Lucide `Bell`），两种屏宽一样。没有更多菜单和 GitHub 键：设置在导航里，记忆从设置进，GitHub 在导航栏底部（电脑）和设置「关于」里。
 - **公告铃铛**：有未读公告时图标右上角一个 6px 小圆点，`bg-foreground`（和筛选按钮的点同位置、同大小；用前景色而不是 muted，因为这是要人去看的事），不用她的颜色也不用强调色。读屏名字「公告」，有未读时「公告，有未读」。点了打开公告弹窗（见「Overlays」）。
 - **服务状态**（GLOSSARY.md「服务状态」）：铃铛左边。有服务故障时图标右上角一个 6px 的 `bg-destructive` 小圆点，只有不稳定的时候是 `bg-warning`，全部正常时没有点（和铃铛的点同位置、同大小）。读屏名字「服务状态」，有点时「服务状态，有服务不正常」。点了在按钮下面弹出 Popover（两种屏宽都是，`align="end"`，宽 `w-60`），不用 Dialog：标题「服务状态」；每项一行，左边名字（对话、记忆、语音合成、语音识别、判断、检索、重排、照片），右边状态：不稳定前面琥珀色 StatusDot、故障前面挂断红 StatusDot，并加粗（medium）；正常、最近没有调用只写 muted 的字，不加点。最下面一行 Meta 字号 muted 的「最近 {n} 分钟」。没有数字。一次都没拉到，或者后台一项都没显示时，按钮整个不出现。
 - **顺序**：最近有过往来的在上面（开了新对话也算），从没聊过的在最后、按原作的偶像顺序；搜索结果同样排。一整列平铺，不按组合分段；一行换位置时直接跳过去，不做位移动画。
@@ -432,6 +433,18 @@ components:
 - **鼠标**：电脑上是原版的手套，平时、按下、停在材料上张开、拖着时握拳、停在文本框上是会动的 NEXT 气泡，按缩放取 1/2/3 倍的图；手机上没有。
 - **结束卡**：画面上压一层 60% 黑，像素字写得到了什么（「抽奖 +1」「♥ 好感度上升」，或者只有「〈她的名字〉走了」），下面「再营业」「离开」。
 
+### 信（GLOSSARY.md「信」）
+- **固定浅色**：信纸、信封不跟深色模式，两种模式一样（`--letter-*`，在 `themeContrast.test.ts` 里）：信纸 `--letter-paper` `#fbf7ee`、墨 `--letter-ink` `#2b2620`、字幕和次要字 `--letter-muted` `#6b6359`（信纸、信封上都 ≥ 4.5）、信纸横线 `--letter-rule` `#e8dece`、信封 `--letter-envelope` `#f0e6d4`、信封边线 `--letter-envelope-edge` `#d8c9b0`。横线和边线上不放字。
+- **她的颜色只在三处**（`letterVars(官方色)` 注入）：封蜡 `--her-seal`（和上面那颗星 `--her-seal-fg`，用分享图色带那一对）、信封上她的名字、信末的署名（`--her-letter-ink`，浅色模式的 accent，纸面上 ≥ 4.5）。信纸、信封、正文、字幕不用她的颜色。
+- **字**：信上的字用 Klee One（`font-letter`，`next/font/google` 自托管、不预载，只在拆信时载入；缺字退回日语字体）。正文 `text-letter`（18px）、中文字幕 `text-letter-zh`（13px，`--letter-muted`）、文字署名 `text-letter-signature`（22px）；行高都是信纸的一行（`--letter-line`，窄屏 2rem、宽屏 2.25rem），字落在横线上。
+- **拆信这一层**：整屏 `bg-black/75` 加 `backdrop-blur-sm` 淡入，中间她的信封从下面浮上来（700ms），下面一行 70% 白的「拆开」。点了封口翻开、信封落下（800ms），信纸从下面滑上来；字跟着她念一个一个写出来（`animate-ink`：从淡、带一点洇开的模糊到清楚，稍稍往上落定，0.55s），每段写完下面淡出中文字幕；最后署名从左到右显出来（`animate-sign`，1.6s）。右上角静音（`LetterSoundIcon` / `LetterMutedIcon`）和「跳过」，签完名信末出现「收好」。
+- **收起**：信纸往下收、缩小淡出（320ms），信封回到原处（260ms），再飞进存放它的键、边飞边缩到键的大小，那枚键跳一下（放大到 1.3 倍再回来）；键不在屏幕上时信封原地缩小淡出（300ms）。从页首信封键、她的对话页信封键拆的飞回各自的键，自动弹出的飞回页首信封键。系统要求减少动态效果时没有这些动画，拆开就是整封信，声音照放。
+- **弹出**：有没读过、也没弹过的信时，进入外壳和离开对话页时整屏弹出最早那封的信封；在对话页上、通话中不弹。每次打开网站最多一封；跳过的不再弹。
+- **页首信封键**：对话列表页首、服务状态左边（见「Conversation list」）。有没读过的信时右上角一个 6px `bg-foreground` 的点（和公告铃铛的点同位置、同大小），读屏「信，有没读过的」。宽屏点开是挂在键下面的 Popover（`w-80`、高 `min(28rem,70dvh)`，`align="end"`），窄屏是 90dvh 的底部 Drawer；标题「信」。没读过的一组在最上面（组名「没读过」），其余按写信那天的月份分组（「10月」，不是今年的带年份），组名 Meta 字号 muted；都从新到旧。不做筛选和搜索。
+- **她的信封键**：她的对话页页首、电话键左边，ghost `icon-lg`（窄屏 `size-11`，同页首别的键），她写过信才有；有没读过的时右上角 6px `bg-foreground` 的点。点开宽屏是居中的 Dialog（最宽 `max-w-sm`，最高 80dvh），窄屏带拖动条的底部 Drawer，内容上注入她的颜色；标题「{角色名}的信」，只列她的，从新到旧，不分组。
+- **列表里的一枚小信封**：一行 64px（`h-16`）、`rounded-md`，信封色底、1px 信封边线；左边 36px 的封蜡，中间她的名字（日语字体、Row name 字号、她的颜色）和下面一行「场合 · 日期」（Meta、`--letter-muted`），没读过的右边一个 8px 墨色的点。悬停往上抬 2px。点了拆开；电脑右键、手机长按出菜单「删除这封信」（destructive，`TrashIcon`），确认框标题「删除{角色名}的这封信？」、说明一句、「取消」和「删除」（`destructive`），照删历史对话。
+- **场合的叫法**：更近了一步、亲密、集齐、她的生日、你的生日、相识纪念；几个场合合在一封时用「、」连起来。不加说明小字。
+
 ### Icons
 - 全部来自 `lucide-react`，按语义别名从一个文件导出（沿用 `PhoneIcon`、`HangUpIcon`、`MicIcon` 这类名字），组件里不直接散用 Lucide 原名。
 - 导航栏和 dock：对话是 Lucide `MessageCircle`（`ConversationsIcon`），朋友圈是 `Aperture`（`MomentsIcon`），玩法是 `Shapes`（`PlayIcon`），设置是 `Settings`（`SettingsIcon`）。
@@ -444,6 +457,7 @@ components:
 - 对话页更多菜单：新对话 `SquarePen`（`NewConversationIcon`）、历史对话 `History`（`PastConversationsIcon`，历史对话的只读卡也用它）、换衣装 `Shirt`（`OutfitIcon`）、成就 `Trophy`（`AchievementsIcon`，页首的奖杯也用它；成就面板「集齐」那一行没集齐是 `Circle`（`TaskOpenIcon`），集齐了是 `CircleCheck`（`SuccessIcon`））、她的日程 `CalendarDays`（`CalendarIcon`，同玩法页「日历」卡）。对话列表行菜单：置顶 `Pin`（`PinIcon`）、取消置顶 `PinOff`（`UnpinIcon`）、在列表中隐藏 `EyeOff`（`HideIcon`）、在列表中显示 `Eye`（`ShowIcon`）。
 - 设置一级：档案 `CircleUser`（`ProfileIcon`）、记忆 `BookHeart`（`MemoriesIcon`）、通话 `PhoneIcon`、自带密钥 `KeyRound`（`OwnKeysIcon`）、登录与数据 `LogIn`（`SignInIcon`）、关于 `Info`（`AboutIcon`）。新标签页打开的链接行尾是 `ExternalLink`（`ExternalLinkIcon`）。
 - 公告用两个图标：用户端的铃铛是 Lucide `Bell`（`AnnouncementsBellIcon`），后台侧栏是 `Megaphone`（`AnnouncementsIcon`），都照上一条导出，不是例外。
+- 信：页首信封键、她的信封键、对话列表行上的小信封都是 `Mail`（`LetterIcon`）；读信时右上角的静音键，有声音时 `Volume2`（`LetterSoundIcon`），静音时 `VolumeX`（`LetterMutedIcon`）；删除这封信是 `Trash2`（`TrashIcon`）。
 - 品牌标志例外：Lucide 不收品牌标志，需要时照抄 simple-icons 的官方路径，不改形状，同样从那个文件导出。目前只有 `GitHubIcon`。
 
 **The Library Icon Rule.** 图标只从 Lucide 取；不手绘 SVG，不用字符或 emoji 当图标。品牌标志是唯一的例外，只能用 simple-icons 的官方路径。

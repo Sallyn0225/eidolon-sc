@@ -31,8 +31,8 @@ export function previewOfOne(conversation: Pick<LatestConversation, "created_at"
 }
 
 /** 列表里的一行：哪位角色，她是不是置顶的、是不是隐藏的（行菜单和图钉据此显示），有没有没看过的搭话
- * （GLOSSARY.md「没看过的搭话」，时间前面的圆点据此显示）。 */
-export type ListRow<C> = { character: C; isPinned: boolean; isHidden: boolean; isUnseen: boolean };
+ * （GLOSSARY.md「没看过的搭话」，时间前面的圆点据此显示），有没有没读过的信（GLOSSARY.md「没读过的信」，名字后面的小信封据此显示）。 */
+export type ListRow<C> = { character: C; isPinned: boolean; isHidden: boolean; isUnseen: boolean; hasUnreadLetter: boolean };
 
 export type ArrangeOptions = {
   /** 这台设备上的隐藏和置顶。 */
@@ -43,6 +43,8 @@ export type ArrangeOptions = {
   keep?: readonly string[];
   /** 她的当前对话正显示在对话页上的那位：搭话在那一页上直接出现、算看过，她那一行不标。 */
   onScreen?: string | null;
+  /** 有没读过的信的那几位（lib/letter 的 `unreadFrom`）。信不随对话显示，正显示着她的对话也照样标。 */
+  unreadLetters?: ReadonlySet<string>;
 };
 
 /**
@@ -50,13 +52,14 @@ export type ArrangeOptions = {
  * - 没有搜索时去掉隐藏的人，`keep` 里的不去掉；有搜索时在所有人里搜（`matchesSearch`），隐藏的照样出现。
  * - 置顶的排在前面；置顶的之间、其余的之间都按最近往来排，往来的时间就是这一行显示的时间（`previewOf`）；
  *   时间相同的、从没聊过的（排在最后）都保持 `characters` 原来的顺序，即原作的偶像顺序。
- * - 她最新的对话里有没看过的搭话的那一行标出来（`isUnseen`），当前对话正显示着的那位（`onScreen`）除外。
+ * - 她最新的对话里有没看过的搭话的那一行标出来（`isUnseen`），当前对话正显示着的那位（`onScreen`）除外；
+ *   她有没读过的信的那一行也标出来（`hasUnreadLetter`）。
  * `hiddenCount` 是这台设备上隐藏的人数，只数 `characters` 里还有的。
  */
 export function arrange<C extends Searchable & { id: string }>(
   characters: C[],
   latest: Record<string, LatestConversation>,
-  { preferences = NO_PREFERENCES, query = "", keep = [], onScreen = null }: ArrangeOptions = {},
+  { preferences = NO_PREFERENCES, query = "", keep = [], onScreen = null, unreadLetters }: ArrangeOptions = {},
 ): { rows: ListRow<C>[]; hiddenCount: number } {
   const hidden = new Set(preferences.hidden);
   const pinned = new Set(preferences.pinned);
@@ -74,6 +77,7 @@ export function arrange<C extends Searchable & { id: string }>(
         isPinned: pinned.has(c.id),
         isHidden: hidden.has(c.id),
         isUnseen: c.id !== onScreen && latest[c.id]?.unseen_reach_out === true,
+        hasUnreadLetter: unreadLetters?.has(c.id) ?? false,
       },
       at: lastTalked(c),
     }))
