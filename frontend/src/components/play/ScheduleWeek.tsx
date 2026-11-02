@@ -28,6 +28,7 @@ import {
   expiry,
   freeSlots,
   type GridItem,
+  hasSavedShown,
   isShown,
   type Job,
   type JobCategory,
@@ -89,25 +90,28 @@ function herStyle({ color }: ScheduledCharacter): CSSProperties | undefined {
  * 别的格子淡下去，点亮着的放进去成草稿；点草稿块拿回待排并选中它；点保存过的块弹说明。
  * 手机上周视图在上、待排在下：点空格、点待排一项、点工作块各弹一个底部抽屉。
  * 本周的工作没发布时格子的位置写一句「本周的工作北京时间周一 0:00 发布」，不显示待排。
+ * 往周（`isPast`）只看：只有保存过的块（都是做完了的），没有待排；一项也没有时格子的位置写「这周没有排日程」
+ * （只看她时「这周没有她的日程」）；还没读到（`board` 是 null）时写「正在读取」。
  * `who` 是「只看她」的角色 id（null 是全部）：只画她的块和她的待排，别人占着的格子是空着的灰格。
  */
 export function ScheduleWeek({
+  week,
   board,
-  isNext,
-  hasNext,
-  onWeek,
+  isPast,
+  nav,
   characterOf,
   calendar,
   who,
   isWide,
   onDrafts,
 }: {
-  board: Board;
-  /** 显示的是下周。 */
-  isNext: boolean;
-  /** 下周已经发布，能翻过去。 */
-  hasNext: boolean;
-  onWeek: (isNext: boolean) => void;
+  /** 看的是哪一周（周号）。 */
+  week: string;
+  /** 这一周；往周还没读到是 null。 */
+  board: Board | null;
+  /** 是本周以前的往周：只看。 */
+  isPast: boolean;
+  nav: WeekNav;
   characterOf: CharacterOf;
   /** 行首的节假日和角色生日从这里来。 */
   calendar: CalendarData<Character>;
@@ -121,15 +125,28 @@ export function ScheduleWeek({
   const [jobSheet, setJobSheet] = useState<Opened<Job>>(null);
   const [blockSheet, setBlockSheet] = useState<Opened<Occupant>>(null);
 
-  const pending = pendingJobs(board).filter((job) => isShown(job, who));
+  const range = t.range(dateText(week), dateText(addDays(week, 6)));
+  const heading = <WeekHeading range={range} nav={nav} />;
+  const label = nav.title ?? range;
+  if (board === null || (isPast && !hasSavedShown(board.week, who))) {
+    return (
+      <section aria-label={label} className="flex min-w-0 flex-col gap-3">
+        {heading}
+        <InPlaceOfGrid text={board === null ? copy.play.loading : who === null ? t.emptyWeek : t.emptyWeekHers} />
+      </section>
+    );
+  }
+
+  const pending = isPast ? [] : pendingJobs(board).filter((job) => isShown(job, who));
   const selected = isWide ? (pending.find((job) => job.id === selectedId) ?? null) : null;
   const isPublished = board.week.published;
 
+  const { drafts } = board;
   function place(job: Job, { day, slot }: Cell) {
-    onDrafts([...board.drafts.filter((p) => p.job_id !== job.id), { job_id: job.id, day, slot }]);
+    onDrafts([...drafts.filter((p) => p.job_id !== job.id), { job_id: job.id, day, slot }]);
   }
   function takeBack(job: Job) {
-    onDrafts(board.drafts.filter((p) => p.job_id !== job.id));
+    onDrafts(drafts.filter((p) => p.job_id !== job.id));
   }
 
   const grid = (
@@ -156,7 +173,7 @@ export function ScheduleWeek({
       }}
     />
   );
-  const pendingList = isPublished && (
+  const pendingList = isPublished && !isPast && (
     <Pending
       board={board}
       pending={pending}
@@ -171,12 +188,12 @@ export function ScheduleWeek({
   return (
     <div className="flex flex-col gap-6 md:flex-row md:items-start">
       {isWide && pendingList && <div className="flex w-64 shrink-0 flex-col md:sticky md:top-0">{pendingList}</div>}
-      <section aria-label={isNext ? t.nextWeek : t.thisWeek} className="flex min-w-0 flex-1 flex-col gap-3">
-        <WeekHeading week={board.week.id} isNext={isNext} hasNext={hasNext} onWeek={onWeek} />
+      <section aria-label={label} className="flex min-w-0 flex-1 flex-col gap-3">
+        {heading}
         {isPublished ? (
           grid
         ) : (
-          <p className="rounded-lg border py-16 text-center text-body text-muted-foreground">{t.unpublished}</p>
+          <InPlaceOfGrid text={t.unpublished} />
         )}
       </section>
       {!isWide && pendingList}
@@ -221,38 +238,44 @@ export function ScheduleWeek({
 /** 一个抽屉：给它的那一项和开着没有；从没打开过是 null。 */
 type Opened<T> = { value: T; open: boolean } | null;
 
-/** 「本周 10月19日 – 10月25日」，两边上周、下周：本周时上周不能翻，下周只在已发布时能翻。 */
-function WeekHeading({
-  week,
-  isNext,
-  hasNext,
-  onWeek,
-}: {
-  week: string;
-  isNext: boolean;
+/** 周视图标题怎么翻：标题前面的名字（本周、下周、上周，再往前没有）、两边能不能翻、翻到哪，和「回到本周」（只在往周有）。 */
+export type WeekNav = {
+  title: string | null;
+  hasPrevious: boolean;
   hasNext: boolean;
-  onWeek: (isNext: boolean) => void;
-}) {
+  onPrevious: () => void;
+  onNext: () => void;
+  /** 翻到往周时才有。 */
+  onThisWeek: (() => void) | null;
+};
+
+/** 格子的位置上一块描边，中间一句 muted 的话：本周的工作没发布、往周没排、还没取到。 */
+function InPlaceOfGrid({ text }: { text: string }) {
+  return <p className="rounded-lg border py-16 text-center text-body text-muted-foreground">{text}</p>;
+}
+
+/** 「本周 10月19日 – 10月25日」（`range` 是后面的日期），两边上周、下周：往前翻到最早保存过日程的那一周，往后只到已发布的
+ * 下周；翻到往周时末尾一个「回到本周」。 */
+function WeekHeading({ range, nav }: { range: string; nav: WeekNav }) {
   return (
     <div className="flex items-center gap-1">
-      <Button variant="ghost" size="icon-sm" aria-label={t.previous} disabled={!isNext} onClick={() => onWeek(false)}>
+      <Button variant="ghost" size="icon-sm" aria-label={t.previous} disabled={!nav.hasPrevious} onClick={nav.onPrevious}>
         <PreviousMonthIcon />
       </Button>
       <h2 className="flex min-w-0 items-baseline gap-2 text-header">
-        {isNext ? t.nextWeek : t.thisWeek}
-        <span className="truncate text-subtitle font-normal text-muted-foreground tabular-nums">
-          {t.range(dateText(week), dateText(addDays(week, 6)))}
-        </span>
+        {nav.title ?? <span className="truncate tabular-nums">{range}</span>}
+        {nav.title && (
+          <span className="truncate text-subtitle font-normal text-muted-foreground tabular-nums">{range}</span>
+        )}
       </h2>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={t.next}
-        disabled={isNext || !hasNext}
-        onClick={() => onWeek(true)}
-      >
+      <Button variant="ghost" size="icon-sm" aria-label={t.next} disabled={!nav.hasNext} onClick={nav.onNext}>
         <NextMonthIcon />
       </Button>
+      {nav.onThisWeek && (
+        <Button variant="ghost" size="sm" className="ml-auto" onClick={nav.onThisWeek}>
+          {t.backToThisWeek}
+        </Button>
+      )}
     </div>
   );
 }

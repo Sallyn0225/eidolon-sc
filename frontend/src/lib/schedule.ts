@@ -39,7 +39,14 @@ export type Placement = { job_id: string; day: number; slot: number };
 export type Week = { id: string; published: boolean; published_at: string; jobs: Job[]; placements: Placement[] };
 
 /** 日程开着时读到的：有效时区（`timeOf` 按它算），本周和已发布的下周。 */
-export type OpenSchedule = { enabled: true; timezone: string; this_week: Week; next_week: Week | null };
+export type OpenSchedule = {
+  enabled: true;
+  timezone: string;
+  this_week: Week;
+  next_week: Week | null;
+  /** 最早保存过日程的那一周；没保存过是 null。 */
+  first_week: string | null;
+};
 
 /** 读日程接口给的；部署关着日程时只有 `enabled: false`。 */
 export type Schedule = { enabled: false } | OpenSchedule;
@@ -53,6 +60,13 @@ export type Saved = { saved: Placement[]; returned: Returned[] };
 /** 读日程；后端读的时候顺带抽出这周的工作、补算做完的工作的好感度。带着设备时区（`api`）。 */
 export async function getSchedule(): Promise<Schedule> {
   return json(await api("/api/schedule"));
+}
+
+/** 读往周：`from` 所在的那一周到 `to` 所在的那一周里本周以前的（最多 6 周，月视图一屏那么多），早的在前；每周只有保存过的
+ * 放置和它们的工作。只读，不抽工作、不算好感度。日程关着时抛 `scheduleClosed` 的 ApiError。 */
+export async function getPastWeeks(from: string, to: string): Promise<Week[]> {
+  const read: { weeks: Week[] } = await json(await api(`/api/schedule/weeks?${new URLSearchParams({ from, to })}`));
+  return read.weeks;
 }
 
 /** 保存 `week` 这次新加的几项；能放的存下，其余带原因退回。日程关着时抛 `scheduleClosed` 的 ApiError。 */
@@ -411,6 +425,98 @@ function slotList(slots: readonly SlotName[]): string {
 /** 几个时间段的名字，按上午、下午、晚上排。 */
 function slotNames(slots: readonly SlotName[]): string[] {
   return SLOTS.filter((slot) => slots.includes(slot)).map((slot) => t.slots[SLOTS.indexOf(slot)]);
+}
+
+/** `date` 那一周的周一。 */
+export function mondayOf(date: string): string {
+  return addDays(date, -((partsOf(date).weekday + DAYS - 1) % DAYS));
+}
+
+/** 周视图正在看的那一周和怎么翻：哪一周（周号）、这一周（往周还没取到是 null）、是不是往周、标题前面的名字（没有是 null）、
+ * 两边能不能翻、翻到哪（选的周，null 是本周）、有没有「回到本周」（往周才有）。 */
+export type WeekPage = {
+  id: string;
+  week: Week | null;
+  isPast: boolean;
+  title: string | null;
+  hasPrevious: boolean;
+  hasNext: boolean;
+  previous: string | null;
+  next: string | null;
+  hasBackToThisWeek: boolean;
+};
+
+/** 选了 `chosen`（null 是本周）时周视图看哪一周、怎么翻；往周从取过的 `past` 里拿。 */
+export function weekPage(chosen: string | null, read: OpenSchedule, past: ReadonlyMap<string, Week>): WeekPage {
+  const thisWeek = read.this_week.id;
+  const id = weekShown(chosen, read);
+  const isPast = id < thisWeek;
+  const pick = (week: string) => (week === thisWeek ? null : week);
+  return {
+    id,
+    week: isPast ? (past.get(id) ?? null) : id === thisWeek ? read.this_week : read.next_week,
+    isPast,
+    title: weekName(id, thisWeek),
+    hasPrevious: hasPrevious(id, read),
+    hasNext: isPast || (id === thisWeek && read.next_week !== null),
+    previous: pick(addDays(id, -DAYS)),
+    next: pick(addDays(id, DAYS)),
+    hasBackToThisWeek: isPast,
+  };
+}
+
+/** 月视图画的几周：取过的往周（只有保存过的），本周，和已发布的下周。 */
+export function calendarWeeks(read: OpenSchedule, past: ReadonlyMap<string, Week>): Week[] {
+  return [
+    ...[...past.values()].filter((week) => week.id < read.this_week.id),
+    read.this_week,
+    ...(read.next_week ? [read.next_week] : []),
+  ];
+}
+
+/** `date` 落在还没取到的往周里：月视图的清单先写「正在读取」，不说「这一天没有事」。 */
+export function awaitsPast(date: string, read: OpenSchedule, past: ReadonlyMap<string, Week>): boolean {
+  return pastWeeksIn(date, date, read).some((week) => !past.has(week));
+}
+
+/** 周视图标题前面的名字：本周、下周、上周；再往前没有名字，只写日期。 */
+function weekName(week: string, thisWeek: string): string | null {
+  if (week === thisWeek) return t.thisWeek;
+  if (week === addDays(thisWeek, DAYS)) return t.nextWeek;
+  if (week === addDays(thisWeek, -DAYS)) return t.lastWeek;
+  return null;
+}
+
+/** 周视图看的是哪一周：选过的（`chosen`）还看得到就是它，否则本周。看得到的是已发布的下周，和最早保存过日程的那一周
+ * 到本周之间的往周。 */
+function weekShown(chosen: string | null, read: OpenSchedule): string {
+  const thisWeek = read.this_week.id;
+  if (chosen === null || chosen === thisWeek) return thisWeek;
+  if (chosen === read.next_week?.id) return chosen;
+  return read.first_week !== null && read.first_week <= chosen && chosen < thisWeek ? chosen : thisWeek;
+}
+
+/** 周视图能不能从 `week` 往前翻：下周能翻回本周；本周和往周要最早保存过日程的那一周早于它。 */
+function hasPrevious(week: string, read: OpenSchedule): boolean {
+  if (week > read.this_week.id) return true;
+  return read.first_week !== null && read.first_week < week;
+}
+
+/** `from` 到 `to` 这几天碰到的往周（周号），早的在前：最早保存过日程的那一周起、本周以前；没保存过是空的。 */
+export function pastWeeksIn(from: string, to: string, read: OpenSchedule): string[] {
+  if (read.first_week === null) return [];
+  const weeks: string[] = [];
+  const start = mondayOf(from) > read.first_week ? mondayOf(from) : read.first_week;
+  for (let week = start; week <= to && week < read.this_week.id; week = addDays(week, DAYS)) weeks.push(week);
+  return weeks;
+}
+
+/** 这一周保存过的工作里有没有 `who`（null 是全部）的：往周一项也没有时不画格子。 */
+export function hasSavedShown(week: Week, who: string | null): boolean {
+  return week.placements.some((placement) => {
+    const job = jobOf(week, placement.job_id);
+    return job !== undefined && isShown(job, who);
+  });
 }
 
 /** `week` 的工作什么时候发布：那个周一的北京时间 0 点。 */

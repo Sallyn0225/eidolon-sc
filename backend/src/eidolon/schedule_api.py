@@ -1,19 +1,21 @@
 """Schedules over HTTP (GLOSSARY.md「日程」), for users who agreed to the terms: the user's
 week and the next once published at `/api/schedule`, the week's jobs drawn as first read;
-saving jobs into a week at `/api/schedule/weeks/{week}`, the week named by its Monday's date.
-Both in the producer's time zone, their profile's, else their device's (`X-Timezone`). What
-is saved cannot be changed or taken back: there is no route to. While schedules are off,
-reading says so, and saving is refused with 409 and `schedule_closed`."""
+saving jobs into a week at `/api/schedule/weeks/{week}`, the week named by its Monday's date;
+the user's weeks gone, to look at, at `/api/schedule/weeks?from=YYYY-MM-DD&to=YYYY-MM-DD`, as
+many as `PAST_AT_ONCE` at a time. All in the producer's time zone, their profile's, else
+their device's (`X-Timezone`). What is saved cannot be changed or taken back: there is no
+route to. While schedules are off, reading their week says so, and reading weeks gone and
+saving are refused with 409 and `schedule_closed`."""
 
 from datetime import date
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from eidolon.assembly import Backend
 from eidolon.job_list import SLOTS
-from eidolon.schedule import DAYS, Placement, ScheduleClosed
+from eidolon.schedule import DAYS, Placement, ScheduleClosed, TooManyWeeks
 from eidolon.sessions import DeviceTimezone, UserId
 
 
@@ -43,6 +45,23 @@ def add_schedule_routes(app: FastAPI, backend: Backend) -> None:
         saved of it; or only that schedules are off."""
         view = await schedules.read(user_id, device_timezone)
         return view.shown() if view is not None else {"enabled": False}
+
+    @app.get("/api/schedule/weeks")
+    async def past(
+        user_id: UserId,
+        device_timezone: DeviceTimezone = None,
+        first: date = Query(alias="from"),
+        last: date = Query(alias="to"),
+    ) -> dict:
+        """The user's weeks gone from the one `from` is in to the one `to` is in, each with
+        what they saved of it and the jobs of it they saved; at most `PAST_AT_ONCE`."""
+        try:
+            weeks = await schedules.past(user_id, first, last, device_timezone)
+        except TooManyWeeks as e:
+            raise HTTPException(400, str(e)) from None
+        if weeks is None:
+            raise ScheduleClosed()
+        return {"weeks": [w.shown() for w in weeks]}
 
     @app.post("/api/schedule/weeks/{week}")
     async def save(
