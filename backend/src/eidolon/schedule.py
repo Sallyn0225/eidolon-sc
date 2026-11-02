@@ -24,6 +24,12 @@ that it stays on the same day and slot should the producer move. Each slot holds
 whoever's; a slot begun or past takes none (`why_not`). Placing is saving: what is saved is
 neither moved nor taken back, and there is no way to. The browser keeps the drafts.
 
+**Weeks gone.** The producer reads back their weeks before this one where they are, as many
+as `PAST_AT_ONCE` at a time (`past`): only to look at, each with what they saved of it and the
+jobs of it they saved, not the others; nothing is drawn or counted for it. With their week
+comes the earliest they saved anything of (`ScheduleView.first_week`), as far back as there
+is anything to read.
+
 **What she knows.** She is told her jobs the producer saved of their week and the next, in
 what she is told of now (`schedule_lines`), typing, in a call or reaching out alike; nothing
 of last week's, nor of the others'. A job is done as its last slot ends, where the producer
@@ -104,6 +110,9 @@ DRAW_TRIES = 100
 """How many times a week is drawn before the job list is blamed."""
 
 DAYS = 7
+PAST_AT_ONCE = 6
+"""How many weeks gone the producer reads back at a time: as many as the month view shows."""
+
 SLOT_HOURS = 6
 """How long a slot is; the first begins at this hour too, the hours before in none."""
 
@@ -203,11 +212,13 @@ class Week:
 
 @dataclass(frozen=True)
 class ScheduleView:
-    """The producer's week, and the next once published, in their time zone."""
+    """The producer's week, and the next once published, in their time zone, and the
+    earliest week they saved anything of (None if none)."""
 
     timezone: str
     this_week: Week
     next_week: Week | None
+    first_week: date | None
 
     def shown(self) -> dict:
         return {
@@ -215,7 +226,15 @@ class ScheduleView:
             "timezone": self.timezone,
             "this_week": self.this_week.shown(),
             "next_week": self.next_week and self.next_week.shown(),
+            "first_week": self.first_week and self.first_week.isoformat(),
         }
+
+
+class TooManyWeeks(ValueError):
+    """More weeks gone asked for at once than `PAST_AT_ONCE`."""
+
+    def __init__(self) -> None:
+        super().__init__(f"一次最多读 {PAST_AT_ONCE} 周")
 
 
 @dataclass(frozen=True)
@@ -489,6 +508,44 @@ class Schedules:
             self._read(db, user_id, device_timezone, now, counting, writing)
         )
 
+    async def past(
+        self, user_id: str, first: date, last: date, device_timezone: str | None
+    ) -> list[Week] | None:
+        """The user's weeks from the one `first` is in to the one `last` is in that are
+        before their week, earliest first, each with what they saved of it and only the jobs
+        of it they saved; none if `last` is before `first`. None while schedules are off.
+        Reads only: draws and counts none. Raises TooManyWeeks for more than
+        `PAST_AT_ONCE`."""
+        start, end = monday_of(first), monday_of(last)
+        if (end - start).days // DAYS + 1 > PAST_AT_ONCE:
+            raise TooManyWeeks()
+        if not self._is_on():
+            return None
+        return await self._db.read(
+            self._past, user_id, start, end, device_timezone, self._clock()
+        )
+
+    def _past(
+        self,
+        db: sqlite3.Connection,
+        user_id: str,
+        start: date,
+        end: date,
+        device_timezone: str | None,
+        now: datetime,
+    ) -> list[Week]:
+        _, local = _local(db, user_id, device_timezone, now)
+        this_week = monday_of(local.date())
+        weeks = []
+        week = start
+        while week <= end and week < this_week:
+            placements = _placements(db, user_id, week)
+            placed = {p.job_id for p in placements}
+            jobs = [j for j in _jobs(db, week) if j.id in placed]
+            weeks.append(Week(week, published_at(week), jobs, placements, True))
+            week += timedelta(days=DAYS)
+        return weeks
+
     async def hers(
         self, user_id: str, character_id: str, device_timezone: str | None
     ) -> HerSchedule | None:
@@ -597,7 +654,10 @@ class Schedules:
                 _placements(db, user_id, week) if published else [], published,
             ))
         this, following = weeks
-        return ScheduleView(timezone, this, following if following.published else None)
+        return ScheduleView(
+            timezone, this, following if following.published else None,
+            _first_week(db, user_id),
+        )
 
     def _hers(
         self,
@@ -782,6 +842,14 @@ def _placements(db: sqlite3.Connection, user_id: str, week: date) -> list[Placem
         (user_id, week.isoformat()),
     )
     return [Placement(*row) for row in rows]
+
+
+def _first_week(db: sqlite3.Connection, user_id: str) -> date | None:
+    """The earliest week the user saved anything of; None if none."""
+    (first,) = db.execute(
+        "SELECT MIN(week) FROM schedule_placements WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return first and date.fromisoformat(first)
 
 
 def _count_scheduled(db: sqlite3.Connection, week: date) -> int:

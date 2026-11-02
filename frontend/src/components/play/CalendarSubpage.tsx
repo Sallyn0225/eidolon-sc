@@ -8,7 +8,7 @@ import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { useDirectory, useWide } from "@/components/conversations/ConversationDirectory";
 import { HerStrip } from "@/components/play/HerStrip";
 import { PlayShell, PlaySubpageHeader } from "@/components/play/PlayShell";
-import { type CharacterOf, SaveBar, ScheduleWeek } from "@/components/play/ScheduleWeek";
+import { type CharacterOf, SaveBar, ScheduleWeek, type WeekNav } from "@/components/play/ScheduleWeek";
 import { useCalendar } from "@/components/play/useCalendar";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -41,12 +41,16 @@ import { playHref } from "@/lib/playRoute";
 import {
   afterSave,
   type Board,
+  awaitsPast,
+  calendarWeeks,
   dayJobs,
   type Placement,
+  pastWeeksIn,
   returnedNote,
   saveSchedule,
   shortName,
   startedNote,
+  weekPage,
 } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
@@ -80,7 +84,8 @@ const FILTER_ICONS = {
  * 月视图从上到下是筛选、月视图和点中的那一天的清单（默认今天，制作人时区）。节假日按月视图和本周、下周上的那几年取，
  * 没回来之前先画生日，这一天所在的年没回来、又没有生日时先不说「这一天没有事」。
  * 周视图是本周（和已发布的下周）的日程和待排（components/play/ScheduleWeek），有草稿时内容底部一条保存条；
- * 保存时服务器退回了哪几项，页上方说一句。日程读到之前整页先写「正在读取」，免得先画月视图再跳成周视图。
+ * 保存时服务器退回了哪几项，页上方说一句。周视图能往前翻到最早保存过日程的那一周，往周只看；每次进来先看本周（选的周不记）。
+ * 月视图翻到哪个月，就取那一屏碰到的往周，把保存过的工作画进去。日程读到之前整页先写「正在读取」，免得先画月视图再跳成周视图。
  * 地址带着 `who`（对话页更多菜单的「她的日程」）时「只看她」：两种视图都只画她的日程和她的待排，页首下面一条
  * 「只看〇〇的日程」，点 ✕ 地址去掉 `who`。角色不存在、或日程关着时当作没有。
  * 好感度和礼物没开放时照常有。
@@ -89,7 +94,8 @@ export function CalendarSubpage({ who }: { who: string | null }) {
   const [month, setMonth] = useState<CalendarMonth | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [kept, setKept] = useState<{ userId: string; mode: CalendarMode } | null>(null);
-  const [isNext, setNext] = useState(false);
+  // 周视图选的那一周（周号）；null 是本周。
+  const [chosenWeek, setChosenWeek] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [isSaving, setSaving] = useState(false);
@@ -110,13 +116,22 @@ export function CalendarSubpage({ who }: { who: string | null }) {
     keepDraftsOn,
     readSchedule,
     closeSchedule,
+    past,
+    pastFailure,
   } = useCalendar({
-    // 月视图首尾两格所在的年，和周视图本周、下周所在的年（跨年也给）。
+    // 月视图首尾两格所在的年，周视图本周、下周所在的年，和翻到的往周所在的年（跨年也给）。
     years: (today) => [
       ...yearsOn(monthCells(month ?? monthOf(today), today)),
       partsOf(addDays(today, -6)).year,
       partsOf(addDays(today, 13)).year,
+      ...(chosenWeek ? [partsOf(chosenWeek).year, partsOf(addDays(chosenWeek, 6)).year] : []),
     ],
+    // 月视图这一屏碰到的往周一组，周视图翻到的往周一组。
+    pastWeeks: (read, today) => {
+      const cells = monthCells(month ?? monthOf(today), today);
+      const { id, isPast } = weekPage(chosenWeek, read, new Map());
+      return [pastWeeksIn(cells[0].date, cells[cells.length - 1].date, read), ...(isPast ? [[id]] : [])];
+    },
   });
   const header = (end?: ReactNode) => <PlaySubpageHeader title={playTitle("calendar")} end={end} />;
   if (!calendar || !schedule || !account) {
@@ -144,6 +159,7 @@ export function CalendarSubpage({ who }: { who: string | null }) {
   const failures = (
     <>
       {scheduleFailure && <FailureNotice failure={scheduleFailure} />}
+      {pastFailure && <FailureNotice failure={pastFailure} />}
       {failure && <FailureNotice failure={failure} />}
       {her && (
         <HerStrip
@@ -160,26 +176,36 @@ export function CalendarSubpage({ who }: { who: string | null }) {
   );
 
   if (mode === "week" && schedule.enabled && scheduleNow) {
-    const week = isNext && schedule.next_week ? schedule.next_week : schedule.this_week;
-    const board: Board = { week, drafts: draftsOn(week.id), now: scheduleNow };
+    const page = weekPage(chosenWeek, schedule, past);
+    const weekId = page.id;
+    const board: Board | null = page.week ? { week: page.week, drafts: draftsOn(weekId), now: scheduleNow } : null;
+    const nav: WeekNav = {
+      title: page.title,
+      hasPrevious: page.hasPrevious,
+      hasNext: page.hasNext,
+      onPrevious: () => setChosenWeek(page.previous),
+      onNext: () => setChosenWeek(page.next),
+      onThisWeek: page.hasBackToThisWeek ? () => setChosenWeek(null) : null,
+    };
     const characterOf: CharacterOf = (id) => byId.get(id) ?? { id, name: id, short_name: null, avatar_url: null, color: null };
     const nameOf = (id: string) => characterOf(id).name;
 
     const save = async (saving: Placement[], started: Placement[]) => {
+      if (!board) return;
       setFailure(null);
       setNotice(null);
       if (saving.length === 0) {
         // 都已经开始了：不弹确认框，直接退回待排。
-        keepDraftsOn(week.id, afterSave(board.drafts, started));
+        keepDraftsOn(weekId, afterSave(board.drafts, started));
         setNotice(startedNote(board, started, nameOf));
         return;
       }
       setSaving(true);
       try {
-        const { returned } = await saveSchedule(week.id, saving);
+        const { returned } = await saveSchedule(weekId, saving);
         // 先重读，存下的成了保存过的，再从草稿里去掉试过的，退回的回到待排；重读失败时草稿先不动，
         // 页上方说读不到，下次读到时存下的那几项自己从草稿里消失（lib/schedule 的 draftsOf）。
-        if (await readSchedule()) keepDraftsOn(week.id, afterSave(board.drafts, [...saving, ...started]));
+        if (await readSchedule()) keepDraftsOn(weekId, afterSave(board.drafts, [...saving, ...started]));
         setNotice(returnedNote(board, returned, nameOf));
       } catch (e) {
         if (e instanceof ApiError && e.scheduleClosed) closeSchedule();
@@ -193,7 +219,7 @@ export function CalendarSubpage({ who }: { who: string | null }) {
       <PlayShell
         header={header(end)}
         footer={
-          week.published && board.drafts.length > 0 ? (
+          board && board.week.published && board.drafts.length > 0 ? (
             <SaveBar board={board} characterOf={characterOf} isSaving={isSaving} onSave={save} />
           ) : undefined
         }
@@ -201,16 +227,16 @@ export function CalendarSubpage({ who }: { who: string | null }) {
         {failures}
         {notice && <ScheduleNotice text={notice} onDismiss={() => setNotice(null)} />}
         <ScheduleWeek
-          key={week.id}
+          key={weekId}
+          week={weekId}
           board={board}
-          isNext={week === schedule.next_week}
-          hasNext={schedule.next_week !== null}
-          onWeek={setNext}
+          isPast={page.isPast}
+          nav={nav}
           characterOf={characterOf}
           calendar={data}
           who={herId}
           isWide={isWide}
-          onDrafts={(drafts) => keepDraftsOn(week.id, drafts)}
+          onDrafts={(drafts) => keepDraftsOn(weekId, drafts)}
         />
       </PlayShell>
     );
@@ -219,12 +245,11 @@ export function CalendarSubpage({ who }: { who: string | null }) {
   const kinds = calendarKinds(data.producerBirthday, schedule.enabled);
   const visible = kinds.filter((kind) => shown.includes(kind));
   const day = picked ?? today;
+  // 往周取过的都画上（只有保存过的，没有草稿）；月视图翻到哪儿，那一屏的往周就在里面。
   const weeks = !schedule.enabled
     ? []
-    : [schedule.this_week, ...(schedule.next_week ? [schedule.next_week] : [])].map((week) => ({
-        week,
-        drafts: draftsOn(week.id),
-      }));
+    : calendarWeeks(schedule, past).map((week) => ({ week, drafts: draftsOn(week.id) }));
+  const isDayRead = !schedule.enabled || !visible.includes("schedule") || !awaitsPast(day, schedule, past);
   const jobs = dayJobs(weeks, (id) => byId.get(id) ?? null, herId).flatMap(known);
   const withJobs: CalendarData<Character> = { ...data, jobs };
   const events = eventsOn(day, withJobs, visible);
@@ -254,7 +279,7 @@ export function CalendarSubpage({ who }: { who: string | null }) {
       />
       {visible.length === 0 ? (
         <p className="text-body text-muted-foreground">{t.nothingShown}</p>
-      ) : events.length > 0 || hasHolidaysOf(partsOf(day).year) ? (
+      ) : isDayRead && (events.length > 0 || hasHolidaysOf(partsOf(day).year)) ? (
         <DayEvents date={day} events={events} />
       ) : (
         <p className="text-body text-muted-foreground">{copy.play.loading}</p>

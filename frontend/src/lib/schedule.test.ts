@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   afterSave,
+  awaitsPast,
+  calendarWeeks,
   calendarWho,
   cellText,
   confirmRows,
@@ -9,6 +11,7 @@ import {
   draftsOf,
   expiry,
   freeSlots,
+  hasSavedShown,
   herScheduleHref,
   isOutdated,
   isShown,
@@ -16,6 +19,8 @@ import {
   keepDrafts,
   occupantOf,
   localNow,
+  mondayOf,
+  pastWeeksIn,
   pendingJobs,
   publishedAt,
   readDrafts,
@@ -29,6 +34,7 @@ import {
   timeOf,
   toSave,
   weekGrid,
+  weekPage,
   weeksAt,
   whenText,
   whyNot,
@@ -49,7 +55,7 @@ function weekOf(id: string, fields: Partial<Week> = {}): Week {
 }
 
 function scheduleOf(fields: Partial<OpenSchedule> = {}): OpenSchedule {
-  return { enabled: true, timezone: "Asia/Shanghai", this_week: weekOf(WEEK), next_week: null, ...fields };
+  return { enabled: true, timezone: "Asia/Shanghai", this_week: weekOf(WEEK), next_week: null, first_week: null, ...fields };
 }
 
 describe("此刻在制作人那边是哪一周、周几、几点", () => {
@@ -558,5 +564,85 @@ describe("日程里她的名字", () => {
   it("写短名，没有短名时写全名", () => {
     expect(shortName({ name: "黛冬優子", short_name: "冬優子" })).toBe("冬優子");
     expect(shortName({ name: "七草はづき", short_name: null })).toBe("七草はづき");
+  });
+});
+
+describe("往周", () => {
+  const LAST = "2026-10-12";
+  const EARLIER = "2026-10-05";
+  const none = new Map<string, Week>();
+
+  it("一天所在的那一周从周一算", () => {
+    expect(mondayOf("2026-10-25")).toBe(WEEK);
+  });
+
+  it("本周：最早保存过的那一周早于本周时能往前翻，下周发布了才能往后翻，没有「回到本周」", () => {
+    const page = weekPage(null, scheduleOf({ first_week: EARLIER }), none);
+    expect(page).toEqual({
+      id: WEEK,
+      week: weekOf(WEEK),
+      isPast: false,
+      title: "本周",
+      hasPrevious: true,
+      hasNext: false,
+      previous: LAST,
+      next: NEXT,
+      hasBackToThisWeek: false,
+    });
+    // 没保存过，或者只在本周保存过：本周就是头。
+    expect(weekPage(null, scheduleOf(), none).hasPrevious).toBe(false);
+    expect(weekPage(null, scheduleOf({ first_week: WEEK }), none).hasPrevious).toBe(false);
+    expect(weekPage(null, scheduleOf({ next_week: weekOf(NEXT) }), none).hasNext).toBe(true);
+  });
+
+  it("下周：往前翻回本周（选的是 null）", () => {
+    const page = weekPage(NEXT, scheduleOf({ next_week: weekOf(NEXT) }), none);
+    expect([page.id, page.title, page.hasPrevious, page.previous, page.hasNext]).toEqual([NEXT, "下周", true, null, false]);
+  });
+
+  it("往周：只看、能往后翻、有「回到本周」，上周以前没有名字，最早的那一周不能再往前；还没取到时没有这一周", () => {
+    const read = scheduleOf({ first_week: EARLIER });
+    const last = weekPage(LAST, read, new Map([[LAST, weekOf(LAST)]]));
+    expect(last).toMatchObject({ id: LAST, week: weekOf(LAST), isPast: true, title: "上周", hasPrevious: true });
+    expect(last).toMatchObject({ hasNext: true, next: null, hasBackToThisWeek: true });
+    const earliest = weekPage(EARLIER, read, none);
+    expect(earliest).toMatchObject({ id: EARLIER, week: null, title: null, hasPrevious: false, next: LAST });
+  });
+
+  it("选的那一周看不到了（早过最早的那一周、下周没发布）就回本周", () => {
+    const read = scheduleOf({ first_week: EARLIER });
+    expect(weekPage("2026-09-28", read, none).id).toBe(WEEK);
+    expect(weekPage(NEXT, read, none).id).toBe(WEEK);
+  });
+
+  it("月视图碰到的往周：最早保存过的那一周起、本周以前；没保存过时没有", () => {
+    const read = scheduleOf({ first_week: EARLIER });
+    // 九月、十月两屏。
+    expect(pastWeeksIn("2026-08-31", "2026-10-04", read)).toEqual([]);
+    expect(pastWeeksIn("2026-09-28", "2026-11-01", read)).toEqual([EARLIER, LAST]);
+    expect(pastWeeksIn("2026-09-28", "2026-11-01", scheduleOf())).toEqual([]);
+  });
+
+  it("月视图画取过的往周、本周和下周；还没取到的往周里那几天先读着", () => {
+    const read = scheduleOf({ first_week: EARLIER, next_week: weekOf(NEXT) });
+    const past = new Map([
+      [LAST, weekOf(LAST)],
+      // 读的时候还是往周，现在已经是本周了。
+      [WEEK, weekOf(WEEK, { jobs: [job("old")] })],
+    ]);
+    expect(calendarWeeks(read, past).map((week) => week.id)).toEqual([LAST, WEEK, NEXT]);
+    expect(calendarWeeks(read, past)[1]).toBe(read.this_week);
+    expect(awaitsPast("2026-10-07", read, past)).toBe(true);
+    expect(awaitsPast("2026-10-13", read, past)).toBe(false);
+    expect(awaitsPast("2026-10-20", read, past)).toBe(false);
+  });
+
+  it("往周里有没有要画的，「只看她」时只算她的", () => {
+    const week = weekOf(LAST, {
+      jobs: [job("lesson"), job("shoot", { character_id: "kogane" })],
+      placements: [{ job_id: "shoot", day: 2, slot: 0 }],
+    });
+    expect(hasSavedShown(week, null)).toBe(true);
+    expect(hasSavedShown(week, "mano")).toBe(false);
   });
 });
