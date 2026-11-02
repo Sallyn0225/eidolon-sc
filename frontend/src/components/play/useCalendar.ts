@@ -3,20 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
-import { type Character, getProfile, type ProducerProfile } from "@/lib/api";
+import { ApiError, type Character, getProfile, type ProducerProfile } from "@/lib/api";
 import { type CalendarKind, type CalendarView, type Holiday, todayIn } from "@/lib/calendar";
 import { keepShownKinds, shownKinds } from "@/lib/calendarFilter";
 import { type Failure, toFailure } from "@/lib/failure";
 import { getHolidays } from "@/lib/holidays";
 import {
   draftsOf,
+  getPastWeeks,
   getSchedule,
   isOutdated,
   keepDrafts,
   localNow,
+  type OpenSchedule,
   type Placement,
   readDrafts,
   type Schedule,
+  type Week,
 } from "@/lib/schedule";
 import { producerTimezone } from "@/lib/timezone";
 
@@ -39,8 +42,17 @@ const NO_DRAFTS: readonly Placement[] = [];
  * `scheduleFailure` 说原因），「此刻」每分钟走一次（`scheduleNow`，按接口给的有效时区），制作人那边换了周、或者本周、
  * 下周的工作发布了就重读。草稿只存在这台设备上（lib/schedule）：`draftsOn(周号)` 是那一周还算数的草稿，
  * `keepDraftsOn` 存下、重画；`readSchedule` 重读（保存以后；读到了是 true），`closeSchedule` 在保存时收到「日程没开放」后切成关着。
+ * 往周（`past`，周号 → 那一周）按 `pastWeeks` 要的取：一组一次请求（每组不超过 6 周），取过的留着（往周不会再变），
+ * 取不到时 `pastFailure` 说原因（再要的时候重取，同时收起这句），日程关了就切成关着。
  */
-export function useCalendar({ years }: { years: (today: string) => readonly number[] }) {
+export function useCalendar({
+  years,
+  pastWeeks,
+}: {
+  years: (today: string) => readonly number[];
+  /** 读到的日程开着时要哪几组往周（周号）。 */
+  pastWeeks?: (read: OpenSchedule, today: string) => readonly (readonly string[])[];
+}) {
   const { account, characters } = useDirectory();
   const [profile, setProfile] = useState<Pick<ProducerProfile, "timezone" | "birthday"> | null>(null);
   const [holidays, setHolidays] = useState<ReadonlyMap<number, Holiday[]>>(new Map());
@@ -125,6 +137,31 @@ export function useCalendar({ years }: { years: (today: string) => readonly numb
     readSchedule();
   }, [schedule, clock, readSchedule]);
 
+  const [past, setPast] = useState<ReadonlyMap<string, Week>>(new Map());
+  const [pastFailure, setPastFailure] = useState<Failure | null>(null);
+  // 取过和正在取的周，免得重复请求（后端没给的那几周也不再要）；取不到的放回去，下次要时再试。
+  const asked = useRef(new Set<string>());
+  const pastKey = schedule?.enabled && pastWeeks && today ? JSON.stringify(pastWeeks(schedule, today)) : "[]";
+  useEffect(() => {
+    const groups: string[][] = JSON.parse(pastKey);
+    for (const group of groups) {
+      const missing = group.filter((week) => !asked.current.has(week));
+      if (missing.length === 0) continue;
+      for (const week of missing) asked.current.add(week);
+      setPastFailure(null);
+      getPastWeeks(missing[0], missing[missing.length - 1]).then(
+        (weeks) => {
+          setPast((read) => new Map([...read, ...weeks.map((week) => [week.id, week] as const)]));
+        },
+        (e) => {
+          for (const week of missing) asked.current.delete(week);
+          if (e instanceof ApiError && e.scheduleClosed) setSchedule({ enabled: false });
+          else setPastFailure(toFailure(e));
+        },
+      );
+    }
+  }, [pastKey]);
+
   const scheduleNow = schedule?.enabled ? localNow(schedule.timezone, clock) : null;
   const drafts = useMemo(() => {
     if (!schedule?.enabled || !userId) return new Map<string, Placement[]>();
@@ -169,5 +206,7 @@ export function useCalendar({ years }: { years: (today: string) => readonly numb
     keepDraftsOn,
     readSchedule,
     closeSchedule,
+    past,
+    pastFailure,
   };
 }

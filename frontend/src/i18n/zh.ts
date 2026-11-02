@@ -2205,10 +2205,16 @@ export const zh = {
       /** 周视图的标题和两边的翻页键。 */
       thisWeek: "本周",
       nextWeek: "下周",
+      lastWeek: "上周",
       range: (from: string, to: string) => `${from} – ${to}`,
       previous: "上周",
       next: "下周",
+      /** 翻到往周时标题后面的按钮。 */
+      backToThisWeek: "回到本周",
       unpublished: "本周的工作北京时间周一 0:00 发布",
+      /** 往周没有保存过的工作时，格子的位置写这一句；「只看她」时是第二句。 */
+      emptyWeek: "这周没有排日程",
+      emptyWeekHers: "这周没有她的日程",
       /** 没有工作的已过、进行中的格子。 */
       past: "已过",
       underWay: "进行中",
