@@ -10,11 +10,12 @@ when a segment is complete; it stays on the server. Input that is blank or too l
 before the model is asked; a turn that is rejected or fails part-way leaves no record,
 and what went wrong stays in the server log.
 
-When retrieval is available the chat model is offered the recall-story tool on every
-turn, but forbidden to call it in one that already recalled an episode. Its calls are
-answered and the model asked again, once at most since every round costs the model's
-time to first token; whatever it says along the way is part of the reply, and only the
-reply is recorded.
+The chat model is offered what she may look up (GLOSSARY.md「查看」) on every turn: the
+recall-story tool when retrieval is available, and the weather and her schedule as `HerNow`
+offers them (ADR-0033); but forbidden to call them in one that already recalled an episode.
+Its calls are answered and the model asked again, once at most since every round costs the
+model's time to first token; whatever it says along the way is part of the reply, and only
+the reply is recorded.
 
 Every turn carries the world setting, when there is one, after the character sheet: the
 office and its units, and the character's own songs and lives, each release and live
@@ -131,7 +132,7 @@ from eidolon.data_access import Database
 from eidolon.gift_catalog import Gift
 from eidolon.happenings import Happenings, Open, Rewarded
 from eidolon.her_cycle import HerDay, Period, Premenstrual
-from eidolon.her_now import HerNow, KnownNow, Occasion
+from eidolon.her_now import LOOKED_UP_NOTE, HerNow, KnownNow, Occasion
 from eidolon.her_weather import KnownWeather
 from eidolon.judge import JudgeError
 from eidolon.letter_prompt import Earlier, letters_section, read_earlier
@@ -727,7 +728,7 @@ class ConversationEngine:
         )
         # Fetched as she is retrieved for, and waited on only then.
         weather = asyncio.ensure_future(self._her_now.weather(
-            occasion, profile.city, self._clock(), read.last_apart
+            occasion, profile.city, self._clock(), read.last_apart, conversation.id
         ))
         # Said after reading the record, so an event this turn's prompt does not tell of
         # comes before the turn, and is told of with its words from the next turn on.
@@ -820,7 +821,8 @@ class ConversationEngine:
 
         # Offered on every turn, so that what goes before the history (the tools, with
         # many services) opens every turn's prompt alike, for the service to cache it.
-        tools: list[Tool] = [RECALL_STORY_TOOL] if self._retrieval else []
+        her_look_ups = self._her_now.look_ups(known, occasion)
+        tools: list[Tool] = [*([RECALL_STORY_TOOL] if self._retrieval else []), *her_look_ups]
         parser = ReplyParser()
         try:
             for step in range(MAX_TOOL_ROUNDS + 1):
@@ -864,9 +866,14 @@ class ConversationEngine:
                 ]
                 last_round = step + 1 == MAX_TOOL_ROUNDS
                 for call in calls:
-                    result = await _unless_stopped(stop, self._call_tool, character, call)
+                    result = await _unless_stopped(
+                        stop, self._call_tool, character, call, known, known_weather
+                    )
                     if last_round:
-                        result = f"{result}\n\n{LAST_ROUND_NOTE}"
+                        note = LOOKED_UP_NOTE if any(
+                            call.name == t.name for t in her_look_ups
+                        ) else LAST_ROUND_NOTE
+                        result = f"{result}\n\n{note}"
                     prompt.append(ChatMessage("tool", result, tool_call_id=call.id))
         except _Stopped:
             pass
@@ -1182,10 +1189,18 @@ class ConversationEngine:
         )
         return message, affinity, rewarded, unwell
 
-    async def _call_tool(self, character: Character, call: ToolCall) -> str:
-        """The tool's result, or what went wrong, for the model to read."""
+    async def _call_tool(
+        self,
+        character: Character,
+        call: ToolCall,
+        known: KnownNow,
+        known_weather: KnownWeather | None,
+    ) -> str:
+        """The tool's result, or what went wrong, for the model to read: what she recalls,
+        or looks up of what the turn read of now (`HerNow.look_up`)."""
         if call.name != RECALL_STORY_TOOL.name or self._retrieval is None:
-            return f"没有 {call.name} 这个工具。"
+            looked = self._her_now.look_up(call.name, known, known_weather)
+            return looked if looked is not None else f"没有 {call.name} 这个工具。"
         query = (call.arguments or {}).get("query")
         if not isinstance(query, str) or not query.strip():
             return "调用参数有误：需要 query（要回顾的事，一句概括）。"
