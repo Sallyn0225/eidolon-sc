@@ -24,6 +24,7 @@ import { photoImageUrl, type Character, type Look, type Outfit, type Photo, type
 import { endCard, type CallEnd } from "@/lib/callEnd";
 import { clock, showTime } from "@/lib/callTime";
 import { giftsHref } from "@/lib/gifts";
+import { lookingUpText } from "@/lib/lookingUp";
 import { photoFailureNote } from "@/lib/photoFailure";
 import type { OwnService } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsCategory";
@@ -35,7 +36,6 @@ import {
   type ShownCall,
 } from "@/lib/liveConversation";
 import type { StandDirection } from "@/lib/standAnimations";
-import { lookingUpText } from "@/lib/lookingUp";
 import { cn } from "@/lib/utils";
 import {
   CloseIcon,

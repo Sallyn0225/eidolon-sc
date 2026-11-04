@@ -14,8 +14,8 @@ theirs.
 
 Reaching out, she is always told it, and whether she may bring it up (`weather_lines`). Typing
 and in a call (`HerWeather.told`), she is told a side's only as she may bring it up, and once in
-a stretch of their being in touch, which ends once no turn of the conversation has asked for
-`LONG_APART`; again only for a warning in force there not told of yet in it. Which sides she
+a stretch of their being in touch, which begins after they have been apart for `LONG_APART` (in
+a call, as it connected); again only for a warning in force there not told of yet in it. Which sides she
 was told of in which stretch is kept in memory alone: after a restart she may be told one once
 more. Otherwise she looks it up (GLOSSARY.md「查看」), as `looked_up` tells it."""
 
@@ -112,6 +112,12 @@ class HerWeather:
             k: s for k, s in self._stretches.items() if now - s.touched < LONG_APART
         }
         stretch = self._stretches.get(conversation_id, _Stretch(now))
+        # Long apart since a turn of the stretch kept: this is another (in a call, they were
+        # last in touch before it connected, so its turns go on the stretch it began).
+        if last_apart is not None and now - last_apart >= LONG_APART and (
+            stretch.touched <= last_apart
+        ):
+            stretch = _Stretch(now)
         warned = bool(set(known.warnings) - stretch.warnings)
         tokyo = known.tokyo_free and (not stretch.tokyo or (known.same_place and warned))
         there = known.there_free and (not stretch.there or warned)

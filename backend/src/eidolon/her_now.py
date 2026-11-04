@@ -198,7 +198,7 @@ class HerNow:
 
     def look_ups(self, known: KnownNow, occasion: Occasion) -> list[Tool]:
         """What she may look up on `occasion` (GLOSSARY.md「查看」), always in the same order:
-        the weather, with the weather; her schedule, while schedules are on (`known`). None
+        the weather, with the weather; her schedule, while schedules are on (`known`). Nothing
         on an occasion she does not look up on."""
         if not CARRIES[occasion].looks_up:
             return []

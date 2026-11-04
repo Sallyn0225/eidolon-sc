@@ -104,9 +104,9 @@ the judge model read those the user answers, after the last turn, as her latest 
 import asyncio
 import logging
 import sqlite3
-from copy import deepcopy
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import nullcontext
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -373,7 +373,7 @@ MARKUP = ("<｜", "</｜")
 in her words, nor shown, nor voiced."""
 
 
-class _Markup:
+class _BeforeMarkup:
     """What a round's text may go on to the reply, as it streams: all before any `MARKUP`
     (`found` once it is), held back while what it ends with could be the start of one."""
 
@@ -826,9 +826,11 @@ class ConversationEngine:
                     recalling.set,
                 ))
                 try:
-                    told = asyncio.ensure_future(recalling.wait())
-                    await asyncio.wait({retrieving, told}, return_when=asyncio.FIRST_COMPLETED)
-                    told.cancel()
+                    recall_begun = asyncio.ensure_future(recalling.wait())
+                    await asyncio.wait(
+                        {retrieving, recall_begun}, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    recall_begun.cancel()
                     if recalling.is_set():
                         yield LookingUp(("story",))
                     retrieved = await retrieving
@@ -906,7 +908,7 @@ class ConversationEngine:
                 said = ""
                 calls: list[ToolCall] = []
                 reasoning: list[Reasoning] = []
-                markup = _Markup()
+                markup = _BeforeMarkup()
                 before, shown = deepcopy(parser), False
                 stream = llms.chat.stream(prompt, tools, forbid_calls=forbidden)
                 try:

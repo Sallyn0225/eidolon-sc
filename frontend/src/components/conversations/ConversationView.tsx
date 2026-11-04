@@ -731,9 +731,10 @@ function Messages({
  * 她正在查看什么（GLOSSARY.md「查看」）：她那条还没说完的回复里一行 Meta 字号的 muted 小字，转圈旁边或者已经说的话下面。
  * 回复还在进行时一直在（没在看时是空的、不占地方），读屏器才会礼貌地播报它。
  */
-function LookingUpNote({ name, lookingUp, spaced }: { name: string; lookingUp: Look[] | null; spaced: string }) {
+function LookingUpNote({ name, lookingUp, margin }: { name: string; lookingUp: Look[] | null; margin: string }) {
+  // 没在看时不留外边距，回复的样子和以前一样。
   return (
-    <p role="status" className={cn("text-meta text-muted-foreground", lookingUp && spaced)}>
+    <p role="status" className={cn("text-meta text-muted-foreground", lookingUp && margin)}>
       {lookingUp && lookingUpText(name, lookingUp)}
     </p>
   );
@@ -826,7 +827,7 @@ function Bubbled({
                 {entry.segments.length === 0 ? (
                   <div className="flex items-center">
                     <Spinner className="my-1 text-muted-foreground" aria-label={t.replying(character.name)} />
-                    {entry.pending && <LookingUpNote name={character.name} lookingUp={lookingUp} spaced="ml-2" />}
+                    {entry.pending && <LookingUpNote name={character.name} lookingUp={lookingUp} margin="ml-2" />}
                   </div>
                 ) : (
                   <>
@@ -840,7 +841,7 @@ function Bubbled({
                         </div>
                       ))}
                     </div>
-                    {entry.pending && <LookingUpNote name={character.name} lookingUp={lookingUp} spaced="mt-2" />}
+                    {entry.pending && <LookingUpNote name={character.name} lookingUp={lookingUp} margin="mt-2" />}
                   </>
                 )}
               </BubbleContent>

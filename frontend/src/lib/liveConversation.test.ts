@@ -2822,7 +2822,10 @@ describe("LiveConversation: what she looks up", () => {
   });
 
   it("typing, stops showing it as the turn fails or is cut off", async () => {
-    for (const end of [[{ type: "error", message: "角色暂时无法回复" }], []] as TurnEvent[][]) {
+    for (const [ending, end] of [
+      ["failed", [{ type: "error", message: "角色暂时无法回复" }]],
+      ["cut off", []],
+    ] as [string, TurnEvent[]][]) {
       const { live } = await conversation({
         messages: history,
         turns: scripted([{ type: "user", text: "天气怎么样" }, { type: "looking-up", what: ["weather"] }, ...end]),
@@ -2831,7 +2834,7 @@ describe("LiveConversation: what she looks up", () => {
 
       await live.submit();
 
-      expect(live.snapshot().lookingUp).toBeNull();
+      expect(live.snapshot().lookingUp, ending).toBeNull();
     }
   });
 

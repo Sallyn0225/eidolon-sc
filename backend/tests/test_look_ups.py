@@ -11,6 +11,7 @@ transports, her jobs saved through the API as the producer saves them, on a cloc
 move."""
 
 from dataclasses import replace
+from datetime import timedelta
 
 import httpx
 
@@ -35,6 +36,7 @@ from tests.test_call_turns import (
     spoken,
 )
 from tests.test_her_now import scheduling
+from tests.test_reach_outs import backend_of
 from tests.test_producer_weather import NOON, account, city_of
 from tests.test_schedule_she_knows import ABOUT_THEM, HER_JOBS, UNDER_WAY
 from tests.test_text_turn import send_turn, start_conversation
@@ -113,14 +115,14 @@ async def test_she_may_look_up_the_same_every_turn_and_with_schedules_off_not_he
     make_client: ClientFactory, settings: Settings
 ):
     on = FakeLLM(REPLY, REPLY)
-    off = FakeLLM([SCHEDULE], REPLY)
+    off = FakeLLM([SCHEDULE, ToolCall("call_x", "look_up_horoscope", {})], REPLY)
     client = make_client(on)
     conversation = await start_conversation(client)
     await send_turn(client, conversation, "在吗")
     await send_turn(client, conversation, "在吗")
     without = make_client(off, settings=replace(settings, schedule=False))
 
-    await send_turn(without, await start_conversation(without), "最近忙不忙呀？")
+    events = await send_turn(without, await start_conversation(without), "最近忙不忙呀？")
 
     assert names(on) == [["look_up_weather", "look_up_schedule"]] * 2
     assert on.tools[0] == on.tools[1]
@@ -129,9 +131,12 @@ async def test_she_may_look_up_the_same_every_turn_and_with_schedules_off_not_he
     assert told.endswith("今天的天气你要看一眼手机才知道：制作人问起或话题需要时用工具查，不要凭印象说。")
     assert "日程" not in told.splitlines()[-1]
     assert looked_up(off.prompts[1]) == [
-        "没有 look_up_schedule 这个工具。\n\n（这一轮不能再调用任何工具了，请现在就回答制作人。"
+        f"没有 {name} 这个工具。\n\n（这一轮不能再调用任何工具了，请现在就回答制作人。"
         "上面想起来的内容如果答不上他的问题，就像一时记不清那样自然地说，不要提到查找、工具、记录或剧情库。）"
+        for name in ("look_up_schedule", "look_up_horoscope")
     ]
+    # Nor is the browser told she looks up what she may not.
+    assert looking_up(events) == [] and events[-1]["type"] == "done"
 
 
 async def weathered(
@@ -310,18 +315,6 @@ async def test_the_browser_is_told_what_she_looks_up_between_her_words(
     ]
 
 
-async def test_what_she_may_not_look_up_is_not_told(
-    make_client: ClientFactory, settings: Settings
-):
-    llm = FakeLLM([SCHEDULE, ToolCall("call_x", "look_up_horoscope", {})], REPLY)
-    client = make_client(llm, settings=replace(settings, schedule=False))
-
-    events = await send_turn(client, await start_conversation(client), "最近忙不忙呀？")
-
-    assert looking_up(events) == []
-    assert events[-1]["type"] == "done"
-
-
 async def test_in_a_call_she_looks_up_as_typing_and_the_browser_is_told(
     mano_call: CallUnderTest,
 ):
@@ -344,3 +337,23 @@ async def test_interrupted_as_she_looks_something_up_she_stops_there(mano_call: 
     assert await mano_call.record() == [
         ("user", "明天有工作吗", None, None), ("character", None, "ほわっ", "哇"),
     ]
+
+
+
+async def test_in_a_call_after_long_apart_she_is_told_the_weather_once_not_each_turn(
+    make_client: ClientFactory,
+):
+    """They last talked four hours before the call connected: each turn of it is told they
+    were last in touch then, yet the call is one stretch, begun as it connected."""
+    clock = FakeClock(NOON)
+    weather = FakeWeather(clock=clock)
+    client = make_client(FakeLLM(), clock=clock, weather_transport=weather.transport())
+    her_now = backend_of(client).her_now
+    apart = NOON - timedelta(hours=4)
+
+    async def told(at: timedelta, conversation: str = "c1") -> bool:
+        known = await her_now.weather("in_call", None, NOON + at, apart, conversation)
+        return known is not None and known.tokyo_free
+
+    assert [await told(timedelta()), await told(timedelta(minutes=1))] == [True, False]
+    assert await told(timedelta(minutes=2), "c2")  # another conversation's stretch
