@@ -58,7 +58,11 @@ async def test_the_reply_is_based_on_the_recalled_episode_and_its_place_in_the_c
 
     events = await send_turn(client, conversation_id, "那次在公园唱歌是怎么回事？")
 
-    assert [t.name for t in llm.tools[0]] == ["recall_story"]
+    assert llm.tools[0][0].name == "recall_story"  # first of what she may look up
+    # Told she recalls as the model calls the tool, not as Jev saw no need to.
+    assert [e for e in events if e["type"] == "looking-up"] == [
+        {"type": "looking-up", "what": ["story"]}
+    ]
     first, second = llm.prompts
     assert second[: len(first)] == first
     call, result = second[len(first) :]
@@ -144,7 +148,7 @@ async def test_the_tool_is_not_offered_without_retrieval(make_client: ClientFact
 
     await send_turn(client, conversation_id, "那次在公园唱歌是怎么回事？")
 
-    assert llm.tools == [[]]
+    assert "recall_story" not in [t.name for t in llm.tools[0]]
 
 
 async def test_what_she_says_before_calling_the_tool_is_part_of_the_reply(
@@ -181,7 +185,7 @@ async def test_tool_calls_stop_after_a_few_rounds_and_a_call_made_then_goes_unan
     # tools change (Claude 5.5), but forbids calling them, so the model has to answer; a
     # call it makes all the same goes unanswered.
     assert all(tools == llm.tools[0] for tools in llm.tools)
-    assert [len(tools) for tools in llm.tools] == [1] * (MAX_TOOL_ROUNDS + 1)
+    assert len(llm.tools) == MAX_TOOL_ROUNDS + 1
     assert llm.forbidden == [False] * MAX_TOOL_ROUNDS + [True]
     assert len(llm.prompts) == MAX_TOOL_ROUNDS + 1
     assert events[-1]["type"] == "done"
@@ -250,7 +254,7 @@ async def test_with_more_tool_rounds_only_the_last_results_carry_the_note(
 
     await send_turn(client, conversation_id, "公园那次呢？")
 
-    assert [len(tools) for tools in llm.tools] == [1, 1, 1]
+    assert len(llm.tools) == 3
     assert llm.forbidden == [False, False, True]
     earlier, last = tool_results(llm.prompts[-1])
     assert LAST_ROUND_NOTE not in earlier
@@ -269,7 +273,7 @@ async def test_when_jev_sees_a_recall_question_the_episode_is_recalled_before_th
     # One model call: the episode is already in the prompt, and the tool, offered as on every
     # turn so the prompt opens the same, is not to be called again.
     [prompt] = llm.prompts
-    assert llm.tools == [[RECALL_STORY_TOOL]]
+    assert [tools[0] for tools in llm.tools] == [RECALL_STORY_TOOL]
     assert llm.forbidden == [True]
     system = system_of(prompt)
     assert "# 回顾剧情：那次在公园唱歌是怎么回事？" in system
@@ -281,6 +285,9 @@ async def test_when_jev_sees_a_recall_question_the_episode_is_recalled_before_th
     assert "（W.I.N.G.編中你出场的剧情依次是：" in system and "「決勝後コミュ」" in system
     # Embedded once, as the turn began, for recalling and writing down alike.
     assert embedder.queries == ["那次在公园唱歌是怎么回事？"]
+    # The browser is told she is recalling, as if she had called the tool herself.
+    assert [e["type"] for e in events][:3] == ["user", "looking-up", "delta"]
+    assert events[1] == {"type": "looking-up", "what": ["story"]}
     assert events[-1]["type"] == "done"
 
 

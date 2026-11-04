@@ -432,27 +432,30 @@ def schedule_lines(schedule: HerSchedule) -> list[str]:
     them. Nothing without any."""
     if not schedule.jobs:
         return []
-    listed: list[str] = []
-    under_way: list[str] = []
-    for her in schedule.jobs:
-        job = her.job
-        whens = [
-            schedule.time_of(her.week, her.day, s)
-            for s in range(her.slot, her.slot + job.length)
-        ]
-        if "now" in whens:
-            current = schedule.local.hour // SLOT_HOURS - 1
-            under_way.append(
-                f"现在（{SLOT_NAMES[SLOTS[current]]} {SLOT_HOURS * (current + 1)}–"
-                f"{SLOT_HOURS * (current + 2)} 点）你正在{job.name}：{job.note}。{_UNDER_WAY}"
-            )
-            continue
-        done = "（做完了）" if schedule.done(her) else ""
-        listed.append(
-            f"{_day_named(schedule, her.week, her.day)}{_slots_named(her.slot, job.length)}："
-            f"{job.name}——{job.note}{done}"
-        )
-    return [_HER_JOBS, *listed, *under_way, _ABOUT_HER_JOBS]
+    listed = [
+        f"{_day_named(schedule, her.week, her.day)}{_slots_named(her.slot, her.job.length)}："
+        f"{her.job.name}——{her.job.note}{'（做完了）' if schedule.done(her) else ''}"
+        for her in schedule.jobs if not _under_way(schedule, her)
+    ]
+    return [_HER_JOBS, *listed, *under_way_lines(schedule), _ABOUT_HER_JOBS]
+
+
+def under_way_lines(schedule: HerSchedule) -> list[str]:
+    """What she is told of her job under way in `schedule`, if any, as `schedule_lines`
+    tells it: what she is doing now, and that she may talk as one doing it."""
+    current = schedule.local.hour // SLOT_HOURS - 1
+    return [
+        f"现在（{SLOT_NAMES[SLOTS[current]]} {SLOT_HOURS * (current + 1)}–"
+        f"{SLOT_HOURS * (current + 2)} 点）你正在{her.job.name}：{her.job.note}。{_UNDER_WAY}"
+        for her in schedule.jobs if _under_way(schedule, her)
+    ]
+
+
+def _under_way(schedule: HerSchedule, her: HerJob) -> bool:
+    return any(
+        schedule.time_of(her.week, her.day, s) == "now"
+        for s in range(her.slot, her.slot + her.job.length)
+    )
 
 
 def _day_named(schedule: HerSchedule, week: date, day: int) -> str:

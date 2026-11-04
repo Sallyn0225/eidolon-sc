@@ -12,6 +12,11 @@ caller reads on its own (`weather`), once it has the producer profile (`her_weat
 read them, make a section of their own (`recent_moments.moments_section`). Where in the prompt
 they go is the caller's to say (ADR-0020).
 
+Typing and in a call, she is told of her jobs only the one under way, and of the weather only
+what she may bring up, once (`HerWeather.told`); the rest she looks up (GLOSSARY.md「查看」,
+ADR-0033) as the chat model calls the look-ups `look_ups` offers, `look_up` answering them
+from what the turn read.
+
 What every prompt of hers opens with (her sheet, her birthday, the world setting) is not now:
 it stays the same all day, for a service to cache (`today.always_known`)."""
 
@@ -23,10 +28,18 @@ from typing import Literal
 from eidolon.affinity import Affinities, Status
 from eidolon.characters import Character
 from eidolon.cycles import Cycles, HerDays, always_neither, cycle_lines
-from eidolon.her_weather import HerWeather, KnownWeather, weather_lines
+from eidolon.her_weather import (
+    HerWeather,
+    KnownWeather,
+    is_told,
+    looked_up,
+    told_lines,
+    weather_lines,
+)
+from eidolon.llm import Tool
 from eidolon.producer import City, ProducerProfile, Talking, now_prompt, posting_now_prompt
 from eidolon.recent_moments import RecentMoment, RecentMoments
-from eidolon.schedule import HerSchedule, Job, Schedules, schedule_lines
+from eidolon.schedule import HerSchedule, Job, Schedules, schedule_lines, under_way_lines
 from eidolon.today import today_lines
 from eidolon.weather import Weather
 from eidolon.world import World
@@ -34,6 +47,39 @@ from eidolon.world import World
 Occasion = Talking | Literal["visit", "moments"]
 """Where she speaks: typing, in a call, reaching out (`apart`), visiting the bar, or posting
 a moment."""
+
+# Worded and tried against the real chat model (`.scratch/on-demand-context`, on the
+# research/on-demand-context branch); rewording them needs that trial again.
+LOOK_UP_WEATHER = Tool(
+    name="look_up_weather",
+    description="看天气：看一眼手机上的天气，返回东京（你这边）和制作人那边今天的天气。"
+    "制作人问起天气、冷不冷、要不要带伞，或者话题真的需要知道今天的天气时使用；闲聊时不需要。",
+    parameters={"type": "object", "properties": {}},
+)
+LOOK_UP_SCHEDULE = Tool(
+    name="look_up_schedule",
+    description="看日程：看制作人给你排的这周和下周的安排（哪天、哪个时段、做什么、做完没有）。"
+    "制作人问起你的安排、忙不忙、哪天有空，或者话题真的需要知道你的安排时使用；闲聊时不需要。",
+    parameters={"type": "object", "properties": {}},
+)
+LOOK_UP_BOTH = (
+    "今天的天气和你这周、下周的日程，你要看一眼手机才知道：制作人问起或话题需要时用工具查，"
+    "不要凭印象说。"
+)
+LOOK_UP_THE_SCHEDULE = (
+    "你这周、下周的日程，你要看一眼手机才知道：制作人问起或话题需要时用工具查，不要凭印象说。"
+)
+LOOK_UP_THE_WEATHER = (
+    "今天的天气你要看一眼手机才知道：制作人问起或话题需要时用工具查，不要凭印象说。"
+)
+LOOKED_UP_NOTE = (
+    "（这一轮不能再调用任何工具了，请现在就回答制作人。可以像看了一眼手机那样自然地说，"
+    "不要提到工具或记录。）"
+)
+"""Added to what she looked up, as `engine.LAST_ROUND_NOTE` is to what she recalled, just
+before the round that forbids tool calls."""
+NO_JOBS = "这两周没有安排。"
+"""What she reads looking up her schedule with no jobs in it."""
 
 
 @dataclass(frozen=True)
@@ -44,7 +90,9 @@ class Carries:
     has her (`cycle_lines`); how she feels toward the producer (the affinity lines); her
     latest moments (`recent_moments`), in a section of their own after the others; the
     weather, Tokyo's and the producer's, and where the producer is (`her_weather`), but
-    for posting a moment, which is told Tokyo's weather its own way."""
+    for posting a moment, which is told Tokyo's weather its own way. Where she `looks_up`
+    (GLOSSARY.md「查看」), she is told of her jobs only the one under way, of the weather
+    only what she is to bring up (`HerWeather.told`), and that the rest she looks up."""
 
     time: bool
     today: bool
@@ -53,17 +101,19 @@ class Carries:
     affinity: bool
     moments: bool
     weather: bool
+    looks_up: bool = False
 
 
 CARRIES: dict[Occasion, Carries] = {
     "typing": Carries(
         time=True, today=True, schedule=True, cycle=True, affinity=True, moments=True,
-        weather=True,
+        weather=True, looks_up=True,
     ),
     "in_call": Carries(
         time=True, today=True, schedule=True, cycle=True, affinity=True, moments=True,
-        weather=True,
+        weather=True, looks_up=True,
     ),
+    # Reaching out she is to find something to say: she is told all of it.
     "apart": Carries(
         time=True, today=True, schedule=True, cycle=True, affinity=True, moments=True,
         weather=True,
@@ -128,15 +178,46 @@ class HerNow:
         self._weather = weather
 
     async def weather(
-        self, occasion: Occasion, city: City | None, now: datetime, last_apart: datetime | None
+        self,
+        occasion: Occasion,
+        city: City | None,
+        now: datetime,
+        last_apart: datetime | None,
+        conversation_id: str | None = None,
     ) -> KnownWeather | None:
         """The weather she knows of on `occasion` at `now` (`her_weather`), the producer in
         `city` (None for nowhere set), they last in touch at `last_apart` (in a call, before
-        it connected; None if never); None on an occasion that does not tell her of it, or
-        without the weather."""
+        it connected; None if never); where she looks up, what of it she is told in the
+        conversation (`HerWeather.told`). None on an occasion that does not tell her of it,
+        or without the weather."""
         if not CARRIES[occasion].weather or self._weather is None:
             return None
+        if CARRIES[occasion].looks_up and conversation_id is not None:
+            return await self._weather.told(conversation_id, city, now, last_apart)
         return await self._weather.known(city, now, last_apart)
+
+    def look_ups(self, known: KnownNow, occasion: Occasion) -> list[Tool]:
+        """What she may look up on `occasion` (GLOSSARY.md「查看」), always in the same order:
+        the weather, with the weather; her schedule, while schedules are on (`known`). Nothing
+        on an occasion she does not look up on."""
+        if not CARRIES[occasion].looks_up:
+            return []
+        return [
+            *([LOOK_UP_WEATHER] if self._weather is not None else []),
+            *([LOOK_UP_SCHEDULE] if known.her_jobs is not None else []),
+        ]
+
+    def look_up(
+        self, name: str, known: KnownNow, known_weather: KnownWeather | None
+    ) -> str | None:
+        """What she reads looking up `name`, of what the turn read: the weather she knows of
+        (`her_weather.looked_up`), or her jobs of the week and the next as she was told them
+        before she looked them up (`schedule_lines`). None for what she cannot look up."""
+        if name == LOOK_UP_WEATHER.name and self._weather is not None:
+            return looked_up(known_weather)
+        if name == LOOK_UP_SCHEDULE.name and known.her_jobs is not None:
+            return "\n".join(schedule_lines(known.her_jobs)) or NO_JOBS
+        return None
 
     async def read(
         self, user_id: str, character_id: str, device_timezone: str | None, occasion: Occasion
@@ -187,7 +268,8 @@ class HerNow:
         her at `now`; typing, in a call or reaching out, `known_weather` (`weather`). Joined by
         new lines, they make one section: the time and the rest of `now_prompt`
         (`posting_now_prompt` posting a moment), the affinity lines last in it; where the
-        producer is and the weather; the day in Tokyo; her jobs; her cycle."""
+        producer is and the weather; the day in Tokyo; her jobs; where she looks up, what she
+        is to look up, of what `look_ups` offers but the weather she is told; her cycle."""
         carries = CARRIES[occasion]
         character = known.character
         felt = affinity_lines if carries.affinity else ()
@@ -200,11 +282,26 @@ class HerNow:
         else:
             lines += felt
         if carries.weather and known_weather is not None:
-            lines += weather_lines(known_weather)
+            lines += (told_lines if carries.looks_up else weather_lines)(known_weather)
         if carries.today:
             lines += today_lines(now, character, self._characters.values(), self._world)
         if carries.schedule and known.her_jobs is not None:
-            lines += schedule_lines(known.her_jobs)
+            lines += (under_way_lines if carries.looks_up else schedule_lines)(known.her_jobs)
+        if carries.looks_up:
+            lines += self._to_look_up(known, known_weather)
         if carries.cycle:
             lines += cycle_lines(known.her_days(now, timezone))
         return lines
+
+    def _to_look_up(self, known: KnownNow, known_weather: KnownWeather | None) -> list[str]:
+        """That she is to look up the weather and her schedule, of what she may look up,
+        but the weather on a turn she is told it."""
+        weather = self._weather is not None and not (
+            known_weather is not None and is_told(known_weather)
+        )
+        schedule = known.her_jobs is not None
+        if weather and schedule:
+            return [LOOK_UP_BOTH]
+        if schedule:
+            return [LOOK_UP_THE_SCHEDULE]
+        return [LOOK_UP_THE_WEATHER] if weather else []

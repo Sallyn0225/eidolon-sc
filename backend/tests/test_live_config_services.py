@@ -556,9 +556,7 @@ async def test_a_saved_judge_model_judges_the_next_turn_while_a_call_keeps_its_o
     # The call judges her emotion on the model it connected with, by its threshold; each
     # turn's question goes to the model in effect, by its own, recorded as the one it is.
     assert emotion["emotion"] == "calm"
-    assert [[t.name for t in tools] for tools in clients.llm.tools] == [
-        ["recall_story"], ["recall_story"]
-    ]
+    assert [tools[0].name for tools in clients.llm.tools] == ["recall_story", "recall_story"]
     await until(lambda: len(recorded(client, "judge")) == 3)  # as the call is written
     assert recorded(client, "judge") == [
         ("api.cloudflare.com", "clef-flash", False),

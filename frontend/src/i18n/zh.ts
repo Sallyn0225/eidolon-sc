@@ -216,6 +216,9 @@ export const zh = {
     emptyTitle: (name: string) => `和${name}打个招呼吧`,
     emptyDescription: "打字，或者点右上角的电话和她通话。",
     replying: (name: string) => `${name}正在回复`,
+    /** 她在回合里查看时（GLOSSARY.md「查看」），对话里那条还没说完的回复和通话层的台词卡底部写这句；`what` 是下面几项用「、」连起来。 */
+    lookingUp: (name: string, what: string) => `${name}正在${what}`,
+    looks: { weather: "看天气", schedule: "翻日程", story: "回忆" },
     /** 对话事件（GLOSSARY.md「对话事件」）给用户看的一句话：消息区的分隔线和列表的「最后一句」都用它。 */
     events: {
       hung_up: (name: string) => `${name}挂断了电话`,
