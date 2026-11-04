@@ -59,6 +59,10 @@ async def test_the_reply_is_based_on_the_recalled_episode_and_its_place_in_the_c
     events = await send_turn(client, conversation_id, "那次在公园唱歌是怎么回事？")
 
     assert llm.tools[0][0].name == "recall_story"  # first of what she may look up
+    # Told she recalls as the model calls the tool, not as Jev saw no need to.
+    assert [e for e in events if e["type"] == "looking-up"] == [
+        {"type": "looking-up", "what": ["story"]}
+    ]
     first, second = llm.prompts
     assert second[: len(first)] == first
     call, result = second[len(first) :]
@@ -281,6 +285,9 @@ async def test_when_jev_sees_a_recall_question_the_episode_is_recalled_before_th
     assert "（W.I.N.G.編中你出场的剧情依次是：" in system and "「決勝後コミュ」" in system
     # Embedded once, as the turn began, for recalling and writing down alike.
     assert embedder.queries == ["那次在公园唱歌是怎么回事？"]
+    # The browser is told she is recalling, as if she had called the tool herself.
+    assert [e["type"] for e in events][:3] == ["user", "looking-up", "delta"]
+    assert events[1] == {"type": "looking-up", "what": ["story"]}
     assert events[-1]["type"] == "done"
 
 

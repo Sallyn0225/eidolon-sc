@@ -135,7 +135,14 @@ from eidolon.data_access import Database
 from eidolon.gift_catalog import Gift
 from eidolon.happenings import Happenings, Open, Rewarded
 from eidolon.her_cycle import HerDay, Period, Premenstrual
-from eidolon.her_now import LOOKED_UP_NOTE, HerNow, KnownNow, Occasion
+from eidolon.her_now import (
+    LOOK_UP_SCHEDULE,
+    LOOK_UP_WEATHER,
+    LOOKED_UP_NOTE,
+    HerNow,
+    KnownNow,
+    Occasion,
+)
 from eidolon.her_weather import KnownWeather
 from eidolon.judge import JudgeError
 from eidolon.letter_prompt import Earlier, letters_section, read_earlier
@@ -211,6 +218,25 @@ class PhotoPending:
     id: str
     status: Literal["pending"] = field(default="pending", init=False)
     type: Literal["photo"] = field(default="photo", init=False)
+
+
+Look = Literal["weather", "schedule", "story"]
+"""What she looks up (GLOSSARY.md「查看」): the weather, her schedule, or the story, recalled."""
+LOOKS: dict[str, Look] = {
+    LOOK_UP_WEATHER.name: "weather", LOOK_UP_SCHEDULE.name: "schedule",
+    RECALL_STORY_TOOL.name: "story",
+}
+"""What she looks up by each tool she may call."""
+
+
+@dataclass(frozen=True)
+class LookingUp:
+    """She is looking up `what` (GLOSSARY.md「查看」), each once, in the order called: as the
+    chat model's calls are answered, or as retrieval recalls the story for her before she
+    speaks. Comes between `delta`s, or before the first; it is not recorded."""
+
+    what: tuple[Look, ...]
+    type: Literal["looking-up"] = field(default="looking-up", init=False)
 
 
 @dataclass(frozen=True)
@@ -298,6 +324,7 @@ class TurnRejected:
 TurnEvent = (
     UserSaid
     | PhotoPending
+    | LookingUp
     | SegmentDelta
     | SpeechDelta
     | SegmentComplete
@@ -308,8 +335,9 @@ TurnEvent = (
     | TurnFailed
     | TurnRejected
 )
-"""A turn's events: `user`, then `photo` if she sends one, any `delta`s, then
-`photos-used-up` if the user's photos are, and `done`, or `error`. `shown(event)` is the
+"""A turn's events: `user`, then `photo` if she sends one, any `delta`s, `looking-up`
+among them as she looks something up, then `photos-used-up` if the user's photos are, and
+`done`, or `error`. `shown(event)` is the
 event as it goes out to the browser, except `SpeechDelta`, `SegmentComplete`,
 `CallTurnRecorded` and `TurnJudged`, which do not."""
 
@@ -790,13 +818,22 @@ class ConversationEngine:
             memory = await self._memory.begin(
                 conversation, timezone, llms.background, llms.hold_background
             )
-            retrieved = (
-                await self._retrieval.retrieve(
-                    character, history, text, memory, judging, asking_photo, days
-                )
-                if self._retrieval
-                else Retrieved(None)
-            )
+            retrieved = Retrieved(None)
+            if self._retrieval:
+                recalling = asyncio.Event()
+                retrieving = asyncio.ensure_future(self._retrieval.retrieve(
+                    character, history, text, memory, judging, asking_photo, days,
+                    recalling.set,
+                ))
+                try:
+                    told = asyncio.ensure_future(recalling.wait())
+                    await asyncio.wait({retrieving, told}, return_when=asyncio.FIRST_COMPLETED)
+                    told.cancel()
+                    if recalling.is_set():
+                        yield LookingUp(("story",))
+                    retrieved = await retrieving
+                finally:
+                    retrieving.cancel()
             judged, asked_photo = (
                 await judged_apart if judged_apart is not None
                 else (retrieved.judged, retrieved.photo)
@@ -917,6 +954,13 @@ class ConversationEngine:
                 # A call to a tool not offered, or made when forbidden, goes unanswered.
                 if not calls or not tools or forbidden:
                     break
+                offered = {t.name for t in tools}
+                looks: list[Look] = []
+                for call in calls:
+                    if call.name in offered and call.name in LOOKS and LOOKS[call.name] not in looks:
+                        looks.append(LOOKS[call.name])
+                if looks:
+                    yield LookingUp(tuple(looks))
                 prompt = [
                     *prompt,
                     ChatMessage("assistant", said, tuple(calls), reasoning=tuple(reasoning)),

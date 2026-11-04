@@ -3,9 +3,12 @@ instead (「此刻」): of her jobs only the one under way, of the weather only 
 up, and that but once in a stretch of their being in touch, again for a warning new in it
 (ADR-0033).
 
-Driven through text turns as the producer takes them, the chat model scripted to look things
-up, Open-Meteo and QWeather stood in for over their transports, her jobs saved through the API
-as the producer saves them, on a clock the tests move."""
+As she looks something up, the browser is told what (`looking-up`), typing and in a call alike.
+
+Driven through text turns as the producer takes them, and calls as `test_call_turns` runs them,
+the chat model scripted to look things up, Open-Meteo and QWeather stood in for over their
+transports, her jobs saved through the API as the producer saves them, on a clock the tests
+move."""
 
 from dataclasses import replace
 
@@ -16,6 +19,7 @@ from eidolon.her_weather import TOLD_TO_BRING_UP
 from eidolon.llm import ChatMessage, ToolCall
 from tests.conftest import ClientFactory
 from tests.fakes import (
+    HANG,
     HARBIN,
     FakeClock,
     FakeLLM,
@@ -23,6 +27,12 @@ from tests.fakes import (
     FakeWeather,
     alert,
     context_of,
+)
+from tests.test_call_turns import (
+    INTERRUPTING,
+    CallUnderTest,
+    mano_call,  # noqa: F401  # the fixture
+    spoken,
 )
 from tests.test_her_now import scheduling
 from tests.test_producer_weather import NOON, account, city_of
@@ -78,7 +88,7 @@ async def test_typing_she_is_told_only_the_job_under_way_and_looks_the_rest_up(
     told = now_of(llm.prompts[0])
     assert f"现在（下午 12–18 点）你正在开会：说明。{UNDER_WAY}" in told
     assert HER_JOBS not in told and "声乐课" not in told and "外景" not in told
-    assert told.endswith(LOOK_UP_BOTH)
+    assert told.endswith(f"{UNDER_WAY}\n{LOOK_UP_BOTH}")  # her cycle after it, if anywhere
     assert llm.forbidden == [False, True]
     assert looked_up(llm.prompts[1]) == ["\n".join([
         HER_JOBS,
@@ -274,4 +284,63 @@ async def test_what_she_said_before_markup_stands_and_the_round_goes_no_further(
     assert "DSML" not in shown_text(events) and "look_up" not in shown_text(events)
     assert events[-1]["message"]["segments"] == [
         {"ja": "えっと", "zh": "嗯"}, {"ja": "ちょっと", "zh": ""},
+    ]
+
+
+def looking_up(events: list[dict]) -> list[list[str]]:
+    """What the browser was told she was looking up, in turn."""
+    return [list(e["what"]) for e in events if e["type"] == "looking-up"]
+
+
+async def test_the_browser_is_told_what_she_looks_up_between_her_words(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(["<ja>えっと</ja><zh>嗯</zh>", WEATHER, SCHEDULE], REPLY)
+    client = make_client(llm)
+
+    events = await send_turn(client, await start_conversation(client), "周六天气好的话有空吗？")
+
+    types = [e["type"] for e in events]
+    assert looking_up(events) == [["weather", "schedule"]]
+    at = types.index("looking-up")
+    assert "delta" in types[:at] and "delta" in types[at:]
+    assert events[-1]["type"] == "done"
+    assert events[-1]["message"]["segments"] == [
+        {"ja": "えっと", "zh": "嗯"}, {"ja": "はいっ", "zh": "好的"},
+    ]
+
+
+async def test_what_she_may_not_look_up_is_not_told(
+    make_client: ClientFactory, settings: Settings
+):
+    llm = FakeLLM([SCHEDULE, ToolCall("call_x", "look_up_horoscope", {})], REPLY)
+    client = make_client(llm, settings=replace(settings, schedule=False))
+
+    events = await send_turn(client, await start_conversation(client), "最近忙不忙呀？")
+
+    assert looking_up(events) == []
+    assert events[-1]["type"] == "done"
+
+
+async def test_in_a_call_she_looks_up_as_typing_and_the_browser_is_told(
+    mano_call: CallUnderTest,
+):
+    llm = FakeLLM([SCHEDULE], ["<ja>ほわっ</ja><zh>哇</zh>"])
+
+    _, messages = await mano_call.run(llm, [spoken("明天有工作吗")])
+
+    assert looking_up(messages) == [["schedule"]]
+    assert [t.name for t in llm.tools[0]] == ["look_up_weather", "look_up_schedule"]
+    assert LOOK_UP_BOTH in context_of(llm.prompts[0])
+
+
+async def test_interrupted_as_she_looks_something_up_she_stops_there(mano_call: CallUnderTest):
+    llm = FakeLLM(["<ja>ほわっ</ja><zh>哇</zh>", SCHEDULE], ["<ja>今日", HANG], delay=0.3)
+
+    _, messages = await mano_call.run(llm, [spoken("明天有工作吗"), *INTERRUPTING])
+
+    assert looking_up(messages) == [["schedule"]]
+    assert [m["type"] for m in messages if m["type"] in ("done", "error")] == ["done"]
+    assert await mano_call.record() == [
+        ("user", "明天有工作吗", None, None), ("character", None, "ほわっ", "哇"),
     ]
