@@ -2785,3 +2785,75 @@ describe("LiveConversation: what the list shows newer", () => {
     expect(reads).toEqual(["c1"]);
   });
 });
+
+describe("LiveConversation: what she looks up", () => {
+  // GLOSSARY.md「查看」：她在回合里看天气、翻日程、回忆剧情时，界面上告诉用户她在看什么，她再开口时就没了。
+
+  /** A text turn that streams `before`, waits at the gate, then streams `after`. */
+  function gated(before: TurnEvent[], after: TurnEvent[]) {
+    const { gate: opened, open } = gate();
+    const turns = async function* (): AsyncIterable<TurnEvent> {
+      yield* before;
+      await opened;
+      yield* after;
+    };
+    return { turns, open };
+  }
+
+  const done: TurnEvent = { type: "done", message: message(4, "character", "晴れだよ"), affinity: null };
+
+  it("typing, shows what she looks up until her next words", async () => {
+    const { turns, open } = gated(
+      [{ type: "user", text: "天气怎么样" }, { type: "looking-up", what: ["weather", "schedule"] }],
+      [{ type: "delta", segment: 0, lang: "ja", text: "晴れ" }, done],
+    );
+    const { live } = await conversation({ messages: history, turns });
+    live.setDraft("天气怎么样");
+
+    const submitting = live.submit();
+    await settled();
+    const looking = live.snapshot();
+    open();
+    await submitting;
+
+    expect(looking.lookingUp).toEqual(["weather", "schedule"]);
+    expect(looking.entries.map((e) => e.kind)).toEqual(["user", "character", "user", "character"]);
+    expect(live.snapshot().lookingUp).toBeNull();
+  });
+
+  it("typing, stops showing it as the turn fails or is cut off", async () => {
+    for (const end of [[{ type: "error", message: "角色暂时无法回复" }], []] as TurnEvent[][]) {
+      const { live } = await conversation({
+        messages: history,
+        turns: scripted([{ type: "user", text: "天气怎么样" }, { type: "looking-up", what: ["weather"] }, ...end]),
+      });
+      live.setDraft("天气怎么样");
+
+      await live.submit();
+
+      expect(live.snapshot().lookingUp).toBeNull();
+    }
+  });
+
+  it("in a call, shows it until her next words, the reply recorded, or the call over", async () => {
+    const opened = await conversation({ messages: history });
+    const call = await connected(opened.live, opened.attempts);
+    const emit = (...events: CallEvent[]) =>
+      events.forEach((event) => opened.attempts.at(-1)!.handlers.onEvent(event));
+    const lookingUp = () => opened.live.snapshot().lookingUp;
+
+    emit({ type: "user", text: "那次拍写真集", reply: 1 }, { type: "looking-up", what: ["story"] });
+    expect(lookingUp()).toEqual(["story"]);
+    emit({ type: "delta", segment: 0, lang: "ja", text: "あの時は" });
+    expect(lookingUp()).toBeNull();
+
+    emit({ type: "looking-up", what: ["schedule"] });
+    emit({ type: "done", message: message(4, "character", "あの時は"), affinity: null });
+    expect(lookingUp()).toBeNull();
+
+    emit({ type: "user", text: "明天呢", reply: 2 }, { type: "looking-up", what: ["schedule"] });
+    await opened.live.hangUp();
+    expect(lookingUp()).toBeNull();
+    expect(call.hangUps).toBe(1);
+  });
+});

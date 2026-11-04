@@ -40,13 +40,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { cueText, untilText } from "@/lib/affinity";
-import type { Character } from "@/lib/api";
+import type { Character, Look } from "@/lib/api";
 import { keepCalendarMode } from "@/lib/calendar";
 import { eventText } from "@/lib/conversationEvents";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { giftsHref } from "@/lib/gifts";
 import { isLive, NOT_OPEN, type LiveConversation, type Trophy } from "@/lib/liveConversation";
+import { lookingUpText } from "@/lib/lookingUp";
 import { linesOf, type Line } from "@/lib/messageLines";
 import { pastDay } from "@/lib/pastConversations";
 import { photosUsedUpText } from "@/lib/photoFailure";
@@ -137,7 +138,7 @@ export function ConversationView({
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [live, setLive] = useState<LiveConversation | null>(null);
   const snapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notOpen, notOpen);
-  const { conversation, entries, call, layer, hearing, draft, failure } = snapshot;
+  const { conversation, entries, call, layer, hearing, lookingUp, draft, failure } = snapshot;
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const [pickingPast, setPickingPast] = useState(false);
@@ -433,6 +434,7 @@ export function ConversationView({
               key={viewing.id}
               entries={viewing.entries}
               hearing=""
+              lookingUp={null}
               character={character}
               affinityOn={affinity !== null}
               timeZone={timeZone}
@@ -467,6 +469,7 @@ export function ConversationView({
           <Messages
             entries={entries}
             hearing={hearing}
+            lookingUp={lookingUp}
             character={character}
             affinityOn={affinity !== null}
             timeZone={timeZone}
@@ -642,6 +645,7 @@ function HeaderTip({ label, children }: { label: string; children: ReactElement 
 function Messages({
   entries,
   hearing,
+  lookingUp,
   character,
   affinityOn,
   timeZone,
@@ -649,6 +653,8 @@ function Messages({
 }: {
   entries: Entry[];
   hearing: string;
+  /** 她在正在进行的回合里查看什么（GLOSSARY.md「查看」）；没在看时为 null。 */
+  lookingUp: Look[] | null;
   character: Character;
   affinityOn: boolean;
   timeZone: string;
@@ -697,6 +703,7 @@ function Messages({
                     character={character}
                     reading={reading}
                     isTabStop={line.entry.key === tabStop}
+                    lookingUp={lookingUp}
                   />
                 </MessageScrollerItem>
               ),
@@ -717,6 +724,18 @@ function Messages({
         </MessageScrollerViewport>
       </MessageScroller>
     </MessageScrollerProvider>
+  );
+}
+
+/**
+ * 她正在查看什么（GLOSSARY.md「查看」）：她那条还没说完的回复里一行 Meta 字号的 muted 小字，转圈旁边或者已经说的话下面。
+ * 回复还在进行时一直在（没在看时是空的、不占地方），读屏器才会礼貌地播报它。
+ */
+function LookingUpNote({ name, lookingUp, spaced }: { name: string; lookingUp: Look[] | null; spaced: string }) {
+  return (
+    <p role="status" className={cn("text-meta text-muted-foreground", lookingUp && spaced)}>
+      {lookingUp && lookingUpText(name, lookingUp)}
+    </p>
   );
 }
 
@@ -763,6 +782,7 @@ function Bubbled({
   character,
   reading,
   isTabStop,
+  lookingUp,
 }: {
   line: Extract<Line, { kind: "entry" }>;
   entry: Exclude<Entry, { kind: "event" }>;
@@ -770,6 +790,8 @@ function Bubbled({
   reading: Reading | null;
   /** 消息区里键盘停在这一条（她最后一条能朗读的话）。 */
   isTabStop: boolean;
+  /** 她在正在进行的回合里查看什么；只写在她还没说完的那条回复里。 */
+  lookingUp: Look[] | null;
 }) {
   const time = <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(entry.at)}</time>;
   const said = reading && herLineIn(reading, entry);
@@ -802,18 +824,24 @@ function Bubbled({
             <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
               <BubbleContent>
                 {entry.segments.length === 0 ? (
-                  <Spinner className="my-1 text-muted-foreground" aria-label={t.replying(character.name)} />
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {entry.segments.map((segment, i) => (
-                      <div key={i} className="flex flex-col gap-0.5">
-                        <p className="text-japanese-line">
-                          <Ja>{segment.ja}</Ja>
-                        </p>
-                        {segment.zh && <p className="text-subtitle text-muted-foreground">{segment.zh}</p>}
-                      </div>
-                    ))}
+                  <div className="flex items-center">
+                    <Spinner className="my-1 text-muted-foreground" aria-label={t.replying(character.name)} />
+                    {entry.pending && <LookingUpNote name={character.name} lookingUp={lookingUp} spaced="ml-2" />}
                   </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      {entry.segments.map((segment, i) => (
+                        <div key={i} className="flex flex-col gap-0.5">
+                          <p className="text-japanese-line">
+                            <Ja>{segment.ja}</Ja>
+                          </p>
+                          {segment.zh && <p className="text-subtitle text-muted-foreground">{segment.zh}</p>}
+                        </div>
+                      ))}
+                    </div>
+                    {entry.pending && <LookingUpNote name={character.name} lookingUp={lookingUp} spaced="mt-2" />}
+                  </>
                 )}
               </BubbleContent>
             </Bubble>

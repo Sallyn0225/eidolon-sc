@@ -10,6 +10,7 @@ import {
   type CallEvent,
   type Conversation,
   type LatestConversation,
+  type Look,
   type Photo,
   type PhotoStatus,
   type Recorded,
@@ -152,6 +153,9 @@ export type Snapshot = {
   micNotice: MicNotice | null;
   /** A text turn is under way. */
   busy: boolean;
+  /** What she is looking up in the turn under way, typed or in a call (GLOSSARY.md「查看」), as the
+   * backend last said, until her next words or the turn is over; null otherwise. */
+  lookingUp: Look[] | null;
   /** What is in the input box. */
   draft: string;
   /** Show the character's replies as text only (GLOSSARY.md「只看文字」). */
@@ -233,6 +237,7 @@ const IDLE: Omit<State, "log" | "card" | "stand" | "dial" | "callPhotoId"> = {
   micId: "",
   micNotice: null,
   busy: false,
+  lookingUp: null,
   draft: "",
   textOnly: false,
   failure: null,
@@ -462,6 +467,10 @@ export class LiveConversation {
     let done = false;
     try {
       for await (const event of this.ports.sendTurn(conversationId, text)) {
+        if (event.type === "looking-up") {
+          this.update({ lookingUp: event.what });
+          continue;
+        }
         this.applyTurnEvent(event);
         if (event.type === "done") done = true;
         // A turn that failed leaves no record and does not count towards the limit.
@@ -485,7 +494,7 @@ export class LiveConversation {
       // A failed turn is not recorded: take it back off the log and return the text to the input.
       this.apply({ type: "interrupted" }, { draft: text, failure });
     }
-    this.update({ busy: false });
+    this.update({ busy: false, lookingUp: null });
   }
 
   /**
@@ -712,6 +721,8 @@ export class LiveConversation {
         return this.photoCameOut(event.id, { status: event.status, reason: event.reason }, { stand });
       case "photos-used-up":
         return this.applyTurnEvent(event, { stand });
+      case "looking-up":
+        return this.update({ lookingUp: event.what, stand });
       case "segment-playing":
         return this.moveCard(event, { stand });
       case "bot-started-speaking":
@@ -763,11 +774,14 @@ export class LiveConversation {
    * change; in a call the line card moves on too, by what `card` makes of the event given the
    * log moved on. */
   private applyTurnEvent(
-    event: TurnEvent,
+    event: Exclude<TurnEvent, { type: "looking-up" }>,
     change: Partial<State> = {},
     card?: (log: ConversationLog) => LineCardEvent,
   ): void {
     const log = conversationLog(this.state.log, event.type === "user" ? { ...event, at: this.isoNow() } : event);
+    // Her next words, or the turn over: she is done looking.
+    const looked = event.type === "delta" || event.type === "done" || event.type === "error";
+    if (looked) change = { ...change, lookingUp: null };
     if (card) this.moveCard(card(log), { ...change, log });
     else this.update({ ...change, log });
     // Recorded: the list's line for her now ends with it, even if the page has been left.
@@ -929,6 +943,7 @@ export class LiveConversation {
         log: conversationLog(this.state.log, { type: "interrupted" }),
         call: end ? { phase: "ended", dial: this.state.dial, end, seconds } : { phase: "idle" },
         hearing: "",
+        lookingUp: null,
         micMuted: false,
         micId: "",
         micNotice: null,
