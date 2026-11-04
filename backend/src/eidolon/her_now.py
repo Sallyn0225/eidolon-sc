@@ -268,9 +268,8 @@ class HerNow:
         her at `now`; typing, in a call or reaching out, `known_weather` (`weather`). Joined by
         new lines, they make one section: the time and the rest of `now_prompt`
         (`posting_now_prompt` posting a moment), the affinity lines last in it; where the
-        producer is and the weather; the day in Tokyo; her jobs; her cycle; and where she
-        looks up, what she is to look up, of what `look_ups` offers but the weather she is
-        told."""
+        producer is and the weather; the day in Tokyo; her jobs; where she looks up, what she
+        is to look up, of what `look_ups` offers but the weather she is told; her cycle."""
         carries = CARRIES[occasion]
         character = known.character
         felt = affinity_lines if carries.affinity else ()
@@ -288,10 +287,10 @@ class HerNow:
             lines += today_lines(now, character, self._characters.values(), self._world)
         if carries.schedule and known.her_jobs is not None:
             lines += (under_way_lines if carries.looks_up else schedule_lines)(known.her_jobs)
-        if carries.cycle:
-            lines += cycle_lines(known.her_days(now, timezone))
         if carries.looks_up:
             lines += self._to_look_up(known, known_weather)
+        if carries.cycle:
+            lines += cycle_lines(known.her_days(now, timezone))
         return lines
 
     def _to_look_up(self, known: KnownNow, known_weather: KnownWeather | None) -> list[str]:
