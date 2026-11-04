@@ -206,8 +206,12 @@ export type ReachOut = {
 /** What a conversation's record holds, in order. */
 export type Recorded = Message | ConversationEvent | ReachOut;
 
+/** What she looks up in a turn (GLOSSARY.md「查看」): the weather, her schedule, or the story, recalled. */
+export type Look = "weather" | "schedule" | "story";
+
 /** A turn's events: `user`, then `photo` if she sends one (its id, before her first words), any
- * `delta`s, then `photos-used-up` if the user asked for a photo with this hour's used up (when they
+ * `delta`s, `looking-up` among them or before them as she looks something up (what, each once, in
+ * the order she looks it up; not recorded), then `photos-used-up` if the user asked for a photo with this hour's used up (when they
  * may ask again, ISO), and `done`, or `error`. `done` says too where the turn left her affinity, null
  * while affinity is off, her ending the conversation after it, recorded after her reply, if she
  * did, what the turn was rewarded with (lib/rewards), null if nothing, and her being unwell,
@@ -216,6 +220,7 @@ export type TurnEvent =
   | { type: "user"; text: string }
   | { type: "photo"; id: string; status: "pending" }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
+  | { type: "looking-up"; what: Look[] }
   | { type: "photos-used-up"; retry_at: string }
   | {
       type: "done";

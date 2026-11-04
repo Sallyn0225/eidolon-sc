@@ -10,11 +10,14 @@ when a segment is complete; it stays on the server. Input that is blank or too l
 before the model is asked; a turn that is rejected or fails part-way leaves no record,
 and what went wrong stays in the server log.
 
-When retrieval is available the chat model is offered the recall-story tool on every
-turn, but forbidden to call it in one that already recalled an episode. Its calls are
-answered and the model asked again, once at most since every round costs the model's
-time to first token; whatever it says along the way is part of the reply, and only the
-reply is recorded.
+The chat model is offered what she may look up (GLOSSARY.md「查看」) on every turn: the
+recall-story tool when retrieval is available, and the weather and her schedule as `HerNow`
+offers them (ADR-0033); but forbidden to call them in one that already recalled an episode.
+Its calls are answered and the model asked again, once at most since every round costs the
+model's time to first token; whatever it says along the way is part of the reply, and only
+the reply is recorded. Should it write out a service's own tool-call markup instead (`MARKUP`),
+the markup and all after it in the round go nowhere; a round with nothing shown before it is
+asked again, once in a turn.
 
 Every turn carries the world setting, when there is one, after the character sheet: the
 office and its units, and the character's own songs and lives, each release and live
@@ -103,6 +106,7 @@ import logging
 import sqlite3
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import nullcontext
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -131,7 +135,14 @@ from eidolon.data_access import Database
 from eidolon.gift_catalog import Gift
 from eidolon.happenings import Happenings, Open, Rewarded
 from eidolon.her_cycle import HerDay, Period, Premenstrual
-from eidolon.her_now import HerNow, KnownNow, Occasion
+from eidolon.her_now import (
+    LOOK_UP_SCHEDULE,
+    LOOK_UP_WEATHER,
+    LOOKED_UP_NOTE,
+    HerNow,
+    KnownNow,
+    Occasion,
+)
 from eidolon.her_weather import KnownWeather
 from eidolon.judge import JudgeError
 from eidolon.letter_prompt import Earlier, letters_section, read_earlier
@@ -207,6 +218,25 @@ class PhotoPending:
     id: str
     status: Literal["pending"] = field(default="pending", init=False)
     type: Literal["photo"] = field(default="photo", init=False)
+
+
+Look = Literal["weather", "schedule", "story"]
+"""What she looks up (GLOSSARY.md「查看」): the weather, her schedule, or the story, recalled."""
+LOOKS: dict[str, Look] = {
+    LOOK_UP_WEATHER.name: "weather", LOOK_UP_SCHEDULE.name: "schedule",
+    RECALL_STORY_TOOL.name: "story",
+}
+"""What she looks up by each tool she may call."""
+
+
+@dataclass(frozen=True)
+class LookingUp:
+    """She is looking up `what` (GLOSSARY.md「查看」), each once, in the order called: as the
+    chat model's calls are answered, or as retrieval recalls the story for her before she
+    speaks. Comes between `delta`s, or before the first; it is not recorded."""
+
+    what: tuple[Look, ...]
+    type: Literal["looking-up"] = field(default="looking-up", init=False)
 
 
 @dataclass(frozen=True)
@@ -294,6 +324,7 @@ class TurnRejected:
 TurnEvent = (
     UserSaid
     | PhotoPending
+    | LookingUp
     | SegmentDelta
     | SpeechDelta
     | SegmentComplete
@@ -304,8 +335,9 @@ TurnEvent = (
     | TurnFailed
     | TurnRejected
 )
-"""A turn's events: `user`, then `photo` if she sends one, any `delta`s, then
-`photos-used-up` if the user's photos are, and `done`, or `error`. `shown(event)` is the
+"""A turn's events: `user`, then `photo` if she sends one, any `delta`s, `looking-up`
+among them as she looks something up, then `photos-used-up` if the user's photos are, and
+`done`, or `error`. `shown(event)` is the
 event as it goes out to the browser, except `SpeechDelta`, `SegmentComplete`,
 `CallTurnRecorded` and `TurnJudged`, which do not."""
 
@@ -333,6 +365,38 @@ log = logging.getLogger(__name__)
 
 class EmptyReply(RuntimeError):
     pass
+
+
+MARKUP = ("<｜", "</｜")
+"""How a service's own tool-call markup opens (DeepSeek's `<｜｜DSML｜｜invoke …>`,
+`<｜tool▁calls▁begin｜>`), should the chat model write it out as text instead of calling: never
+in her words, nor shown, nor voiced."""
+
+
+class _BeforeMarkup:
+    """What a round's text may go on to the reply, as it streams: all before any `MARKUP`
+    (`found` once it is), held back while what it ends with could be the start of one."""
+
+    def __init__(self) -> None:
+        self._held = ""
+        self.found = False
+
+    def feed(self, chunk: str) -> str:
+        text = self._held + chunk
+        at = [i for m in MARKUP if (i := text.find(m)) >= 0]
+        if at:
+            self.found, self._held = True, ""
+            return text[: min(at)]
+        keep = max(
+            (n for m in MARKUP for n in range(1, len(m)) if text.endswith(m[:n])), default=0
+        )
+        self._held = text[len(text) - keep:]
+        return text[: len(text) - keep]
+
+    def finish(self) -> str:
+        """What was held back, at the end of a round with none."""
+        held, self._held = self._held, ""
+        return held
 
 
 class _Stopped(Exception):
@@ -727,7 +791,7 @@ class ConversationEngine:
         )
         # Fetched as she is retrieved for, and waited on only then.
         weather = asyncio.ensure_future(self._her_now.weather(
-            occasion, profile.city, self._clock(), read.last_apart
+            occasion, profile.city, self._clock(), read.last_apart, conversation.id
         ))
         # Said after reading the record, so an event this turn's prompt does not tell of
         # comes before the turn, and is told of with its words from the next turn on.
@@ -754,13 +818,24 @@ class ConversationEngine:
             memory = await self._memory.begin(
                 conversation, timezone, llms.background, llms.hold_background
             )
-            retrieved = (
-                await self._retrieval.retrieve(
-                    character, history, text, memory, judging, asking_photo, days
-                )
-                if self._retrieval
-                else Retrieved(None)
-            )
+            retrieved = Retrieved(None)
+            if self._retrieval:
+                recalling = asyncio.Event()
+                retrieving = asyncio.ensure_future(self._retrieval.retrieve(
+                    character, history, text, memory, judging, asking_photo, days,
+                    recalling.set,
+                ))
+                try:
+                    recall_begun = asyncio.ensure_future(recalling.wait())
+                    await asyncio.wait(
+                        {retrieving, recall_begun}, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    recall_begun.cancel()
+                    if recalling.is_set():
+                        yield LookingUp(("story",))
+                    retrieved = await retrieving
+                finally:
+                    retrieving.cancel()
             judged, asked_photo = (
                 await judged_apart if judged_apart is not None
                 else (retrieved.judged, retrieved.photo)
@@ -820,10 +895,12 @@ class ConversationEngine:
 
         # Offered on every turn, so that what goes before the history (the tools, with
         # many services) opens every turn's prompt alike, for the service to cache it.
-        tools: list[Tool] = [RECALL_STORY_TOOL] if self._retrieval else []
+        her_look_ups = self._her_now.look_ups(known, occasion)
+        tools: list[Tool] = [*([RECALL_STORY_TOOL] if self._retrieval else []), *her_look_ups]
         parser = ReplyParser()
+        step, asked_again = 0, False
         try:
-            for step in range(MAX_TOOL_ROUNDS + 1):
+            while True:
                 # The last round offers the same tools, as some models drop what they thought
                 # once the tools change, but forbids calling them; so does a turn that
                 # already recalled an episode, its one round its last.
@@ -831,6 +908,8 @@ class ConversationEngine:
                 said = ""
                 calls: list[ToolCall] = []
                 reasoning: list[Reasoning] = []
+                markup = _BeforeMarkup()
+                before, shown = deepcopy(parser), False
                 stream = llms.chat.stream(prompt, tools, forbid_calls=forbidden)
                 try:
                     while (item := await _unless_stopped(stop, anext, stream, None)) is not None:
@@ -840,8 +919,10 @@ class ConversationEngine:
                         if isinstance(item, Reasoning):
                             reasoning.append(item)
                             continue
-                        said += item
-                        for event in parser.feed(item):
+                        let_through = markup.feed(item)
+                        said += let_through
+                        for event in parser.feed(let_through):
+                            shown = True
                             if isinstance(event, PhotoTagged):
                                 if photo_asked and photo_asked.keeps_tag:
                                     yield self._begin_photo(
@@ -849,25 +930,55 @@ class ConversationEngine:
                                     )
                                 continue
                             yield event
+                        if markup.found:
+                            break
                 finally:
                     if (close := getattr(stream, "aclose", None)) is not None:
                         await close()  # a stream left part-way lets go of its connection
+                if markup.found:
+                    log.warning("the chat model wrote out tool-call markup in conversation %s",
+                                conversation.id)
+                    if not shown:  # none of the round shown: as if it never was
+                        parser = before
+                        if not asked_again:
+                            asked_again = True
+                            continue
+                    # What she said before it stands; the round goes no further.
+                    calls = []
+                else:
+                    said += (rest := markup.finish())
+                    for event in parser.feed(rest):
+                        if not isinstance(event, PhotoTagged):  # held back only before markup
+                            yield event
                 for event in parser.finish():
                     if not isinstance(event, PhotoTagged):  # never: a tag closes as it is fed
                         yield event
                 # A call to a tool not offered, or made when forbidden, goes unanswered.
                 if not calls or not tools or forbidden:
                     break
+                offered = {t.name for t in tools}
+                looks: list[Look] = []
+                for call in calls:
+                    if call.name in offered and call.name in LOOKS and LOOKS[call.name] not in looks:
+                        looks.append(LOOKS[call.name])
+                if looks:
+                    yield LookingUp(tuple(looks))
                 prompt = [
                     *prompt,
                     ChatMessage("assistant", said, tuple(calls), reasoning=tuple(reasoning)),
                 ]
                 last_round = step + 1 == MAX_TOOL_ROUNDS
                 for call in calls:
-                    result = await _unless_stopped(stop, self._call_tool, character, call)
+                    result = await _unless_stopped(
+                        stop, self._call_tool, character, call, known, known_weather
+                    )
                     if last_round:
-                        result = f"{result}\n\n{LAST_ROUND_NOTE}"
+                        note = LOOKED_UP_NOTE if any(
+                            call.name == t.name for t in her_look_ups
+                        ) else LAST_ROUND_NOTE
+                        result = f"{result}\n\n{note}"
                     prompt.append(ChatMessage("tool", result, tool_call_id=call.id))
+                step += 1
         except _Stopped:
             pass
 
@@ -1182,10 +1293,18 @@ class ConversationEngine:
         )
         return message, affinity, rewarded, unwell
 
-    async def _call_tool(self, character: Character, call: ToolCall) -> str:
-        """The tool's result, or what went wrong, for the model to read."""
+    async def _call_tool(
+        self,
+        character: Character,
+        call: ToolCall,
+        known: KnownNow,
+        known_weather: KnownWeather | None,
+    ) -> str:
+        """The tool's result, or what went wrong, for the model to read: what she recalls,
+        or looks up of what the turn read of now (`HerNow.look_up`)."""
         if call.name != RECALL_STORY_TOOL.name or self._retrieval is None:
-            return f"没有 {call.name} 这个工具。"
+            looked = self._her_now.look_up(call.name, known, known_weather)
+            return looked if looked is not None else f"没有 {call.name} 这个工具。"
         query = (call.arguments or {}).get("query")
         if not isinstance(query, str) or not query.strip():
             return "调用参数有误：需要 query（要回顾的事，一句概括）。"

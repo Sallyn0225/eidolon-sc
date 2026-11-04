@@ -35,7 +35,7 @@ LOS_ANGELES = "America/Los_Angeles"
 
 async def told(
     client: httpx.AsyncClient,
-    occasion: Occasion = "typing",
+    occasion: Occasion = "apart",
     character: str = "mano",
     *,
     profile: ProducerProfile = ProducerProfile(),
@@ -44,7 +44,8 @@ async def told(
     affinity_lines: Sequence[str] = (),
 ) -> list[str]:
     """What the producer's `character` is told of now on `occasion`, the producer in
-    `timezone`, their device reporting it."""
+    `timezone`, their device reporting it: by default reaching out, where she is told all of
+    it (typing and in a call she looks some of it up, `test_look_ups`)."""
     backend = backend_of(client)
     her_now = backend.her_now
     known = await her_now.read(
@@ -169,13 +170,13 @@ def jobs_told(lines: list[str]) -> list[str]:
 
 async def scheduling(
     make_client: ClientFactory, settings: Settings, *jobs: tuple[str, int, int, int],
-    character: str = "mano", deployment: Settings | None = None,
+    character: str = "mano", deployment: Settings | None = None, llm: FakeLLM | None = None,
 ) -> tuple[httpx.AsyncClient, FakeClock]:
     """A client of the producer's that saved the character's `jobs` of `WEEK`, each its name,
     length, day and slot, on Monday early in the morning, and its clock; the deployment as
-    `settings` has it unless `deployment` is given."""
+    `settings` has it unless `deployment` is given, its chat model `llm` if given."""
     clock = FakeClock(EARLY_MONDAY)
-    client = make_client(FakeLLM(), clock=clock, settings=deployment or settings)
+    client = make_client(llm or FakeLLM(), clock=clock, settings=deployment or settings)
     publish(
         settings.database_path, WEEK, *((name, length, None) for name, length, _, _ in jobs),
         character=character,
@@ -358,7 +359,7 @@ async def test_visiting_the_bar_she_is_told_only_how_she_feels_and_the_day_in_to
 
     assert all(
         told in typing
-        for told in ("现在是", "今天是制作人的生日", "上次和制作人说话是", HER_JOBS, PERIOD_EARLY)
+        for told in ("现在是", "今天是制作人的生日", "上次和制作人说话是", "你正在声乐课", PERIOD_EARLY)
     )
     assert visiting == [*FEELS, HOLIDAY]
 

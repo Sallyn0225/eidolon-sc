@@ -339,10 +339,12 @@ class Retrieval:
         affinity: bool = False,
         photo: bool = False,
         days: Days | None = None,
+        recalling: Callable[[], None] = lambda: None,
     ) -> Retrieved:
-        """Look up what this turn needs, finding the user's memories through `memory`; and
-        judge what it does to her affinity, in her `days` if she is in them, and whether it
-        asks her for a photo, if asked to."""
+        """Look up what this turn needs, finding the user's memories through `memory`, and
+        telling `recalling` as it begins recalling the story for her (GLOSSARY.md「查看」);
+        and judge what it does to her affinity, in her `days` if she is in them, and whether
+        it asks her for a photo, if asked to."""
         query = memory_query(history, text)
         embedding = asyncio.ensure_future(self._embed(query))
         finding = asyncio.ensure_future(self._find(character, embedding, memory))
@@ -360,6 +362,8 @@ class Retrieval:
                 retrieved = Retrieved(None)
             else:
                 looked_up = True
+                if need == "recall":
+                    recalling()
                 retrieved = await self._look_up(character, text, query, await finding, memory, need)
         finally:
             for task in (finding, embedding):  # needing nothing, or no longer anything at all

@@ -20,10 +20,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { cueText } from "@/lib/affinity";
-import { photoImageUrl, type Character, type Outfit, type Photo, type Segment } from "@/lib/api";
+import { photoImageUrl, type Character, type Look, type Outfit, type Photo, type Segment } from "@/lib/api";
 import { endCard, type CallEnd } from "@/lib/callEnd";
 import { clock, showTime } from "@/lib/callTime";
 import { giftsHref } from "@/lib/gifts";
+import { lookingUpText } from "@/lib/lookingUp";
 import { photoFailureNote } from "@/lib/photoFailure";
 import type { OwnService } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsCategory";
@@ -81,6 +82,8 @@ type Props = {
   previousLine: Segment | null;
   /** 用户正在说、还没定稿的话。 */
   hearing: string;
+  /** 她在这个回合里查看什么（GLOSSARY.md「查看」）；没在看时为 null。 */
+  lookingUp: Look[] | null;
   /** 底栏换成了输入栏。 */
   typing: boolean;
   /** 这通电话里刚打出去的话，她开口前留在台词卡底部；没有时为 null。 */
@@ -164,6 +167,7 @@ export function LiveCallLayer({
       line={snapshot.line}
       previousLine={snapshot.previousLine}
       hearing={snapshot.hearing}
+      lookingUp={snapshot.lookingUp}
       typing={snapshot.typing}
       typed={snapshot.typed}
       draft={snapshot.draft}
@@ -465,9 +469,10 @@ function Ripple({ isOn, children }: { isOn: boolean; children: ReactNode }) {
  * 台词卡：她当前这句的日语原文在上、字幕在下；「只看文字」开着时上一句以 45% 不透明度留在上面。
  * 她还没开口时是一句提示。用户正在说、还没定稿的话放在最下面。
  */
-function LineCard({ line, previousLine, hearing, typed, textOnly }: Props) {
-  // 卡底一行：用户正在说的话，不在说时是刚打出去的那句。
-  const foot = hearing ? t.hearing(hearing) : typed && t.typed(typed);
+function LineCard({ character, line, previousLine, hearing, lookingUp, typed, textOnly }: Props) {
+  // 卡底一行：用户正在说的话；不在说时她正在查看什么，再不然是刚打出去的那句。
+  const looking = !hearing && lookingUp ? lookingUpText(character.name, lookingUp) : null;
+  const foot = hearing ? t.hearing(hearing) : !looking && typed && t.typed(typed);
   return (
     <div className="w-full max-w-[34em] rounded-3xl bg-white/12 px-5 py-4 text-center text-balance backdrop-blur-md">
       <div aria-live="polite">
@@ -491,6 +496,10 @@ function LineCard({ line, previousLine, hearing, typed, textOnly }: Props) {
         )}
       </div>
       {foot && <p className="mt-3 text-sm text-white/80">{foot}</p>}
+      {/* 一直在，读屏器才会礼貌地播报她正在查看什么 */}
+      <p role="status" className={cn("text-sm text-white/80", looking && "mt-3")}>
+        {looking}
+      </p>
     </div>
   );
 }

@@ -1,9 +1,10 @@
 """The weather she knows of as she talks (GLOSSARY.md「此刻」), typing, in a call or reaching out:
 Tokyo's always, from Open-Meteo, and where the producer has a city in their profile and the
 deployer a QWeather account, where the producer is and the weather and the warnings there,
-from QWeather. She is always told it, but may bring it up herself only after they have long
-been apart, or on a day that stands out, or with a warning in force; nothing of it she cannot
-have in time.
+from QWeather. She may bring it up herself only after they have long been apart, or on a day
+that stands out, or with a warning in force, and typing is told only what she may bring up
+(once in a while, `test_look_ups`; the rest she looks up); nothing of it she cannot have in
+time.
 
 Driven through text turns as the producer takes them, Open-Meteo and QWeather stood in for
 over their transports (`FakeWeather`, `FakeQWeather`), on a clock the tests move; the
@@ -24,13 +25,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from eidolon.config import QWeatherSettings, Settings
-from eidolon.her_weather import (
-    KEEP_IN_MIND,
-    MAY_BRING_UP,
-    THERE_SIDE,
-    TOKYO_SIDE,
-    may_bring_up_only,
-)
+from eidolon.her_weather import TOLD_TO_BRING_UP
 from eidolon.qweather import QWeather
 from eidolon.store import read_last_contact
 from eidolon.weather import TOKYO, Spot, Today, Weather, Weathers
@@ -107,6 +102,17 @@ async def talk(
     return [context_of(p) for p in llm.prompts], llm, client, conversation
 
 
+async def anew(
+    client: httpx.AsyncClient, llm: FakeLLM, settings: Settings, ago: timedelta
+) -> str:
+    """What she is told of now in a text turn of a new conversation, where she has been told
+    none of the weather yet, they last in touch `ago` before `NOON`, in whichever."""
+    with sqlite3.connect(settings.database_path) as db:
+        db.execute("UPDATE messages SET created_at = ?", ((NOON - ago).isoformat(),))
+    await send_turn(client, await start_conversation(client), "还在吗")
+    return context_of(llm.prompts[-1])
+
+
 async def test_she_is_told_tokyos_day_and_after_long_apart_may_bring_it_up(
     make_client: ClientFactory,
 ):
@@ -115,7 +121,7 @@ async def test_she_is_told_tokyos_day_and_after_long_apart_may_bring_it_up(
     [told], *_ = await talk(make_client, weather)
 
     assert "东京（你这边）这会儿：晴，18°C；今天 15～21°C。" in told
-    assert MAY_BRING_UP in told and KEEP_IN_MIND not in told
+    assert TOLD_TO_BRING_UP in told
     assert told.index("# 此刻") < told.index("东京（你这边）")
     [asked] = weather.days_asked()
     assert (asked["latitude"], asked["longitude"], asked["models"]) == (
@@ -124,25 +130,19 @@ async def test_she_is_told_tokyos_day_and_after_long_apart_may_bring_it_up(
     assert (asked["past_days"], asked["forecast_days"], asked["timezone"]) == ("1", "2", "auto")
 
 
-async def test_soon_after_they_last_talked_on_a_day_like_any_other_she_only_keeps_it_in_mind(
+async def test_soon_after_they_last_talked_on_a_day_like_any_other_she_is_told_none_of_it(
     make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock(NOON)
     weather = FakeWeather(clock=clock)
-    told, llm, client, conversation = await talk(make_client, weather, clock=clock)
-    last_contact(settings.database_path, conversation, NOON - timedelta(hours=2, minutes=59))
+    _, llm, client, _ = await talk(make_client, weather, clock=clock)
 
-    await send_turn(client, conversation, "还在吗")
+    second = await anew(client, llm, settings, timedelta(hours=2, minutes=59))
 
-    second = context_of(llm.prompts[-1])
-    assert "东京（你这边）这会儿" in second
-    assert KEEP_IN_MIND in second and MAY_BRING_UP not in second
+    assert "东京（你这边）这会儿" not in second and TOLD_TO_BRING_UP not in second
     assert len(weather.days_asked()) == 1  # kept
 
-    last_contact(settings.database_path, conversation, NOON - timedelta(hours=3))
-    await send_turn(client, conversation, "又来了")
-
-    assert MAY_BRING_UP in context_of(llm.prompts[-1])
+    assert TOLD_TO_BRING_UP in await anew(client, llm, settings, timedelta(hours=3))
 
 
 @pytest.mark.parametrize(
@@ -160,14 +160,12 @@ async def test_on_a_day_that_stands_out_she_may_bring_it_up_however_lately_they_
     make_client: ClientFactory, settings: Settings, weather: FakeWeather, said: str
 ):
     clock = FakeClock(NOON)
-    _, llm, client, conversation = await talk(make_client, weather, clock=clock)
-    last_contact(settings.database_path, conversation, NOON - timedelta(minutes=5))
+    _, llm, client, _ = await talk(make_client, weather, clock=clock)
 
-    await send_turn(client, conversation, "还在吗")
+    told = await anew(client, llm, settings, timedelta(minutes=5))
 
-    told = context_of(llm.prompts[-1])
     assert said in told
-    assert MAY_BRING_UP in told
+    assert TOLD_TO_BRING_UP in told
 
 
 @pytest.mark.parametrize(
@@ -198,13 +196,11 @@ async def test_a_swing_under_eight_degrees_does_not_stand_out(
 ):
     clock = FakeClock(NOON)
     weather = FakeWeather(code=1, yesterday_high=28.4)  # 7 degrees warmer yesterday
-    _, llm, client, conversation = await talk(make_client, weather, clock=clock)
-    last_contact(settings.database_path, conversation, NOON - timedelta(minutes=5))
+    _, llm, client, _ = await talk(make_client, weather, clock=clock)
 
-    await send_turn(client, conversation, "还在吗")
+    told = await anew(client, llm, settings, timedelta(minutes=5))
 
-    told = context_of(llm.prompts[-1])
-    assert "比昨天" not in told and KEEP_IN_MIND in told
+    assert "东京（你这边）这会儿" not in told and TOLD_TO_BRING_UP not in told
 
 
 async def test_with_a_city_she_knows_where_the_producer_is_and_the_weather_and_warnings_there(
@@ -217,14 +213,12 @@ async def test_with_a_city_she_knows_where_the_producer_is_and_the_weather_and_w
         alert("哈尔滨市气象台解除大风蓝色预警信号", code="cancel"),
         alert("哈尔滨市气象台发布道路结冰黄色预警信号"),
     ])
-    _, llm, client, conversation = await talk(
+    [first], llm, client, _ = await talk(
         make_client, weather, qweather, city=city_of(HARBIN), clock=clock
     )
-    last_contact(settings.database_path, conversation, NOON - timedelta(minutes=5))
 
-    await send_turn(client, conversation, "还在吗")
+    told = await anew(client, llm, settings, timedelta(minutes=5))
 
-    told = context_of(llm.prompts[-1])
     assert "制作人在哈尔滨（黑龙江省，中国），这是制作人自己在档案里填的" in told
     assert "制作人那边（哈尔滨）这会儿：阴，-5°C；今天 -8～-1°C。" in told
     assert (
@@ -233,8 +227,8 @@ async def test_with_a_city_she_knows_where_the_producer_is_and_the_weather_and_w
     ) in told
     assert "解除" not in told
     # a warning in force there, though they talked just now; Tokyo's day is like any other
-    assert may_bring_up_only(THERE_SIDE, TOKYO_SIDE) in told.splitlines()
-    assert told.index("制作人在哈尔滨") < told.index("东京（你这边）") < told.index("制作人那边（")
+    assert TOLD_TO_BRING_UP in told and "东京（你这边）" not in told
+    assert first.index("制作人在哈尔滨") < first.index("东京（你这边）") < first.index("制作人那边（")
     assert len(weather.days_asked()) == 1  # Tokyo's alone: there, QWeather's
     for path in ("/v7/weather/now", "/v7/weather/24h", "/v7/weather/3d"):
         assert qweather.asked(path) == [{"location": "126.54,45.80"}]  # kept an hour
@@ -244,35 +238,33 @@ async def test_with_a_city_she_knows_where_the_producer_is_and_the_weather_and_w
 
 
 @pytest.mark.parametrize(
-    ("weather", "qweather", "said", "free", "kept"),
+    ("weather", "qweather", "said", "kept"),
     [
         (
             FakeWeather(code=1), FakeQWeather(later_icon="305"),
             "制作人那边（哈尔滨）这会儿：晴，18°C；今天 15～21°C，今天晚些时候还会下雨。",
-            THERE_SIDE, TOKYO_SIDE,
+            "东京（你这边）这会儿",
         ),
         (
             FakeWeather(code=61), FakeQWeather(),
-            "制作人那边（哈尔滨）这会儿：晴，18°C；今天 15～21°C。", TOKYO_SIDE, THERE_SIDE,
+            "东京（你这边）这会儿：雨，18°C；今天 15～21°C。", "制作人那边（哈尔滨）这会儿",
         ),
     ],
     ids=["rain-there", "rain-in-tokyo"],
 )
 async def test_a_day_that_stands_out_on_one_side_frees_her_to_bring_up_that_side_alone(
     make_client: ClientFactory, settings: Settings, weather: FakeWeather,
-    qweather: FakeQWeather, said: str, free: str, kept: str,
+    qweather: FakeQWeather, said: str, kept: str,
 ):
     clock = FakeClock(NOON)
-    _, llm, client, conversation = await talk(
+    _, llm, client, _ = await talk(
         make_client, weather, qweather, city=city_of(HARBIN), clock=clock
     )
-    last_contact(settings.database_path, conversation, NOON - timedelta(minutes=5))
 
-    await send_turn(client, conversation, "还在吗")
+    told = await anew(client, llm, settings, timedelta(minutes=5))
 
-    told = context_of(llm.prompts[-1])
-    assert said in told
-    assert may_bring_up_only(free, kept) in told.splitlines()
+    assert said in told and kept not in told
+    assert TOLD_TO_BRING_UP in told
 
 
 async def test_each_warning_is_told_once_without_its_full_stop_doubled(
@@ -331,7 +323,7 @@ async def test_without_any_weather_she_is_told_none_but_where_the_producer_is(
     )
 
     assert "制作人在东城（北京，中国）" in told
-    assert "这会儿" not in told and "天气" not in told
+    assert "这会儿" not in told and TOLD_TO_BRING_UP not in told
 
 
 async def test_at_the_top_of_the_hour_none_is_fetched_and_she_is_told_none(
@@ -341,7 +333,7 @@ async def test_at_the_top_of_the_hour_none_is_fetched_and_she_is_told_none(
 
     [told], *_ = await talk(make_client, weather, clock=FakeClock(NOON.replace(minute=1)))
 
-    assert "天气" not in told and weather.requests == []
+    assert "这会儿" not in told and TOLD_TO_BRING_UP not in told and weather.requests == []
 
 
 async def test_reaching_out_and_in_a_call_she_knows_the_weather_but_not_at_the_bar_nor_posting(

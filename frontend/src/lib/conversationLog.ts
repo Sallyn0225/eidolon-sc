@@ -41,7 +41,7 @@ export type LogAction =
   | { type: "submitted"; text: string; at: string }
   /** The backend took up the user's words, heard at `at`; words typed keep the time they were sent. */
   | (Extract<TurnEvent, { type: "user" }> & { at: string })
-  | Exclude<TurnEvent, { type: "user" }>
+  | Exclude<TurnEvent, { type: "user" | "looking-up" }>
   /** The turn ended without `done` or `error`: the user hung up, the call dropped, or
    * the text turn's event stream closed early. */
   | { type: "interrupted" }

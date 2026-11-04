@@ -85,7 +85,7 @@ async def test_with_every_service_turns_retrieve_and_remember(
 
     assert events[-1]["type"] == "done"
     assert services.retrieval_judge.asked == [("櫻木真乃", "我家的猫叫小白哦")]
-    assert services.chat.tools == [[RECALL_STORY_TOOL]]
+    assert services.chat.tools[0][0] == RECALL_STORY_TOOL
     assert [m.text for m in await backend.memories.entries(user_id)] == [CAT]
 
 
@@ -105,7 +105,7 @@ async def test_without_any_one_of_them_retrieval_and_memory_are_off(
 
     assert events[-1]["type"] == "done"
     assert services.retrieval_judge.asked == []
-    assert services.chat.tools == [[]]  # nothing to recall episodes with
+    assert RECALL_STORY_TOOL not in services.chat.tools[0]  # nothing to recall episodes with
     assert await backend.memories.entries(user_id) == []  # listing still works
     assert services.background.prompts == []  # nothing was written down
 
