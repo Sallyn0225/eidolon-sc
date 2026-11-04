@@ -15,7 +15,9 @@ recall-story tool when retrieval is available, and the weather and her schedule 
 offers them (ADR-0033); but forbidden to call them in one that already recalled an episode.
 Its calls are answered and the model asked again, once at most since every round costs the
 model's time to first token; whatever it says along the way is part of the reply, and only
-the reply is recorded.
+the reply is recorded. Should it write out a service's own tool-call markup instead (`MARKUP`),
+the markup and all after it in the round go nowhere; a round with nothing shown before it is
+asked again, once in a turn.
 
 Every turn carries the world setting, when there is one, after the character sheet: the
 office and its units, and the character's own songs and lives, each release and live
@@ -102,6 +104,7 @@ the judge model read those the user answers, after the last turn, as her latest 
 import asyncio
 import logging
 import sqlite3
+from copy import deepcopy
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field, replace
@@ -334,6 +337,38 @@ log = logging.getLogger(__name__)
 
 class EmptyReply(RuntimeError):
     pass
+
+
+MARKUP = ("<｜", "</｜")
+"""How a service's own tool-call markup opens (DeepSeek's `<｜｜DSML｜｜invoke …>`,
+`<｜tool▁calls▁begin｜>`), should the chat model write it out as text instead of calling: never
+in her words, nor shown, nor voiced."""
+
+
+class _Markup:
+    """What a round's text may go on to the reply, as it streams: all before any `MARKUP`
+    (`found` once it is), held back while what it ends with could be the start of one."""
+
+    def __init__(self) -> None:
+        self._held = ""
+        self.found = False
+
+    def feed(self, chunk: str) -> str:
+        text = self._held + chunk
+        at = [i for m in MARKUP if (i := text.find(m)) >= 0]
+        if at:
+            self.found, self._held = True, ""
+            return text[: min(at)]
+        keep = max(
+            (n for m in MARKUP for n in range(1, len(m)) if text.endswith(m[:n])), default=0
+        )
+        self._held = text[len(text) - keep:]
+        return text[: len(text) - keep]
+
+    def finish(self) -> str:
+        """What was held back, at the end of a round with none."""
+        held, self._held = self._held, ""
+        return held
 
 
 class _Stopped(Exception):
@@ -824,8 +859,9 @@ class ConversationEngine:
         her_look_ups = self._her_now.look_ups(known, occasion)
         tools: list[Tool] = [*([RECALL_STORY_TOOL] if self._retrieval else []), *her_look_ups]
         parser = ReplyParser()
+        step, asked_again = 0, False
         try:
-            for step in range(MAX_TOOL_ROUNDS + 1):
+            while True:
                 # The last round offers the same tools, as some models drop what they thought
                 # once the tools change, but forbids calling them; so does a turn that
                 # already recalled an episode, its one round its last.
@@ -833,6 +869,8 @@ class ConversationEngine:
                 said = ""
                 calls: list[ToolCall] = []
                 reasoning: list[Reasoning] = []
+                markup = _Markup()
+                before, shown = deepcopy(parser), False
                 stream = llms.chat.stream(prompt, tools, forbid_calls=forbidden)
                 try:
                     while (item := await _unless_stopped(stop, anext, stream, None)) is not None:
@@ -842,8 +880,10 @@ class ConversationEngine:
                         if isinstance(item, Reasoning):
                             reasoning.append(item)
                             continue
-                        said += item
-                        for event in parser.feed(item):
+                        let_through = markup.feed(item)
+                        said += let_through
+                        for event in parser.feed(let_through):
+                            shown = True
                             if isinstance(event, PhotoTagged):
                                 if photo_asked and photo_asked.keeps_tag:
                                     yield self._begin_photo(
@@ -851,9 +891,26 @@ class ConversationEngine:
                                     )
                                 continue
                             yield event
+                        if markup.found:
+                            break
                 finally:
                     if (close := getattr(stream, "aclose", None)) is not None:
                         await close()  # a stream left part-way lets go of its connection
+                if markup.found:
+                    log.warning("the chat model wrote out tool-call markup in conversation %s",
+                                conversation.id)
+                    if not shown:  # none of the round shown: as if it never was
+                        parser = before
+                        if not asked_again:
+                            asked_again = True
+                            continue
+                    # What she said before it stands; the round goes no further.
+                    calls = []
+                else:
+                    said += (rest := markup.finish())
+                    for event in parser.feed(rest):
+                        if not isinstance(event, PhotoTagged):  # held back only before markup
+                            yield event
                 for event in parser.finish():
                     if not isinstance(event, PhotoTagged):  # never: a tag closes as it is fed
                         yield event
@@ -875,6 +932,7 @@ class ConversationEngine:
                         ) else LAST_ROUND_NOTE
                         result = f"{result}\n\n{note}"
                     prompt.append(ChatMessage("tool", result, tool_call_id=call.id))
+                step += 1
         except _Stopped:
             pass
 

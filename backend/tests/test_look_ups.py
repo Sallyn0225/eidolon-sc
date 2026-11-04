@@ -224,3 +224,54 @@ async def test_a_warning_new_there_is_told_once_more_but_not_the_weather_changin
     assert THERE_NOW in warned and TOKYO_NOW not in warned and TOLD_TO_BRING_UP in warned
     assert "这会儿" not in still and "预警" not in still
     assert "这会儿" not in changed and "预警" not in changed
+
+
+LEAKED = [
+    '<look_up_weather">\n\n</look_up_weather>\n<', "/｜｜DSML｜｜ parameter>\n",
+    "</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>",
+]
+"""DeepSeek's own tool-call markup, as the chat model once wrote it out instead of calling
+(research/on-demand-context), split where the markup could not yet be told apart."""
+
+
+def shown_text(events: list[dict]) -> str:
+    return "".join(e["text"] for e in events if e["type"] == "delta")
+
+
+async def test_markup_written_out_is_neither_shown_nor_kept_and_she_is_asked_again(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(LEAKED, REPLY)
+    client = make_client(llm)
+
+    events = await send_turn(client, await start_conversation(client), "我这边今天冷不冷？")
+
+    assert llm.forbidden == [False, False] and llm.prompts[0] == llm.prompts[1]
+    assert shown_text(events) == "はいっ好的"
+    assert events[-1]["type"] == "done"
+    assert events[-1]["message"]["segments"] == [{"ja": "はいっ", "zh": "好的"}]
+
+
+async def test_markup_written_out_again_fails_the_turn(make_client: ClientFactory):
+    llm = FakeLLM(LEAKED, ["<｜tool▁calls▁begin｜>"])
+    client = make_client(llm)
+
+    events = await send_turn(client, await start_conversation(client), "我这边今天冷不冷？")
+
+    assert [e["type"] for e in events] == ["user", "error"]
+    assert len(llm.prompts) == 2
+
+
+async def test_what_she_said_before_markup_stands_and_the_round_goes_no_further(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(["<ja>えっと</ja><zh>嗯</zh><ja>ちょっと", *LEAKED, "</ja><zh>等等</zh>"])
+    client = make_client(llm)
+
+    events = await send_turn(client, await start_conversation(client), "我这边今天冷不冷？")
+
+    assert len(llm.prompts) == 1
+    assert "DSML" not in shown_text(events) and "look_up" not in shown_text(events)
+    assert events[-1]["message"]["segments"] == [
+        {"ja": "えっと", "zh": "嗯"}, {"ja": "ちょっと", "zh": ""},
+    ]
