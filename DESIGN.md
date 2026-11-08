@@ -158,7 +158,7 @@ components:
 - **Header name**（600，17px）：对话页页首的角色名。
 - **Row name**（600，15px）：列表行的角色名。
 - **Japanese line**（400，16px，LINE Seed JP）：气泡里她的日语原文，外面包 `<Ja>`（`lang="ja"`，换字体）。通话层里 17px、居中、`text-wrap: balance`。
-- **Body**（400，15px）：制作人的消息、输入框。
+- **Body**（400，15px）：制作人的消息、输入框。触屏（`pointer: coarse`）上输入框一律 16px，iOS Safari 字号不到 16px 的输入框拿到焦点会放大页面、不再缩回；shadcn 输入框原本在 ≥ 768px 缩到 14px，也只在电脑（`pointer: fine`）上缩。
 - **Preview**（400，13px，muted）：列表行的最后一句，单行截断。
 - **Subtitle**（400，0.75rem，muted）：气泡里的中文字幕；通话层里 0.875rem、80% 白。
 - **Meta**（400，10–11px，muted，等宽数字）：时间戳、列表时间、日期条。

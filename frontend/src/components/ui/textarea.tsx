@@ -7,16 +7,18 @@ const textareaVariants = cva(
   {
     variants: {
       variant: {
+        // eidolon: 触屏上一律 16px，iOS Safari 字号不到 16px 的输入框拿到焦点会放大页面（#226）；
+        // 原版按宽度（md:text-sm）判断，iPad 和横屏的 iPhone 也过了 md，改成只在电脑上（pointer-fine）缩到 14px。
         default:
-          "min-h-16 rounded-lg border border-input bg-transparent px-2.5 py-2 text-base focus-visible:border-ring disabled:bg-input/50 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80",
+          "min-h-16 rounded-lg border border-input bg-transparent px-2.5 py-2 text-base focus-visible:border-ring disabled:bg-input/50 md:pointer-fine:text-sm dark:bg-input/30 dark:disabled:bg-input/80",
         // eidolon: 对话页输入栏的输入框（DESIGN.md「composer-field」「Layout」）：bg-muted、22px 圆角、无边框，
-        // 一行起、随字数长高（field-sizing），最多长到 8rem，再多就在框里滚动。
+        // 一行起、随字数长高（field-sizing），最多长到 8rem，再多就在框里滚动。触屏上 16px（同上，#226）。
         composer:
-          "max-h-32 min-h-9 resize-none rounded-bubble border-0 bg-muted px-4 py-1.5 text-body leading-6",
+          "max-h-32 min-h-9 resize-none rounded-bubble border-0 bg-muted px-4 py-1.5 text-body leading-6 pointer-coarse:text-base",
         // eidolon: 通话层输入栏的输入框（DESIGN.md「Call layer」的「打字」）：15% 白底、白字，44px 高起，
-        // 和两边的圆键齐平；同样随字数长高，最多 8rem。
+        // 和两边的圆键齐平；同样随字数长高，最多 8rem。触屏上 16px（同上，#226）。
         call:
-          "max-h-32 min-h-11 resize-none rounded-bubble border-0 bg-white/15 px-4 py-2.5 text-body leading-6 text-white placeholder:text-white/60 focus-visible:ring-white/60",
+          "max-h-32 min-h-11 resize-none rounded-bubble border-0 bg-white/15 px-4 py-2.5 text-body leading-6 pointer-coarse:text-base text-white placeholder:text-white/60 focus-visible:ring-white/60",
       },
     },
     defaultVariants: {

@@ -180,7 +180,7 @@ export function CyclesSubpage({ who }: { who: string | null }) {
               onChange={(e) => setQuery(e.target.value)}
               placeholder={copy.conversationList.search}
               aria-label={copy.conversationList.search}
-              className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground"
+              className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground pointer-coarse:text-base"
             />
           </label>
           <ShownFilter filter={filter} counts={filterCounts(hers)} onChange={setFilter} />

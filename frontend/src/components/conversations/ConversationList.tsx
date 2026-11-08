@@ -68,7 +68,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t.search}
             aria-label={t.search}
-            className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground"
+            className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground pointer-coarse:text-base"
           />
         </label>
         <ListFilter isOpen={isFilterOpen} onOpenChange={setFilterOpen} hiddenCount={hiddenCount} />
