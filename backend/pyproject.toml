@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
 dependencies = [
     "cryptography>=50.0.2",
-    "fastapi>=0.143.0",
+    "fastapi>=0.162.0",
     "holidays>=0.107",
     "httpx[socks]>=0.28.1",
     "loguru>=0.7.3",
@@ -15,7 +15,7 @@ dependencies = [
     "pipecat-ai[fish,soniox,webrtc]>=1.12.0",
     "pyrage>=1.4.0",
     "python-socks[asyncio]>=3.1.1",
-    "tzdata>=2026.5",
+    "tzdata>=2026.6",
     "uvicorn[standard]>=0.54.0",
 ]
 
@@ -30,11 +30,11 @@ build-backend = "uv_build"
 dev = [
     "pyopenjtalk-plus>=0.4.1.post9",
     "pyright>=1.1.414",
-    "pytest>=9.1.1",
-    "pytest-asyncio>=1.4.0",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.17.0",
+    "ruff>=0.17.3",
 ]
 
 [tool.uv]
