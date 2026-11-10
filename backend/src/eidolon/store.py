@@ -8,7 +8,7 @@ import json
 import secrets
 import sqlite3
 import uuid
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
@@ -1661,16 +1661,16 @@ def read_record(db: sqlite3.Connection, conversation_id: str) -> list[Recorded]:
         f"SELECT {_REACH_OUT_COLUMNS} FROM reach_outs WHERE conversation_id = ?",
         (conversation_id,),
     ).fetchall()
-    pending: list[ConversationEvent | ReachOut] = sorted(
-        [*map(_event, events), *map(_reach_out, reach_outs)], key=_placed
+    pending: deque[ConversationEvent | ReachOut] = deque(
+        sorted([*map(_event, events), *map(_reach_out, reach_outs)], key=_placed)
     )
     merged: list[Recorded] = []
     for message in messages:
         if message.role == "user":
             while pending and _at(pending[0].created_at) < _at(message.created_at):
-                merged.append(pending.pop(0))
+                merged.append(pending.popleft())
         merged.append(message)
-    return merged + pending
+    return merged + list(pending)
 
 
 def _record_and_unseen(
