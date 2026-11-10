@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 import zipfile
 import zlib
 from http import HTTPStatus
+from pathlib import Path
 from urllib.parse import quote, unquote, urlencode
 
 import httpx
@@ -1324,6 +1325,67 @@ class FakeShinyColorsDB:
             return httpx.Response(304)
         self.sent.append(name)
         return httpx.Response(200, content=body, headers={"ETag": etag})
+
+
+@dataclass
+class GameCatalogFile:
+    """What `npm run game:catalog` saves from the logged-in game (`eidolon.game_catalog`),
+    built up a card, costume, stand and event at a time, and written to `path`. Names
+    are as the game writes them, with a space in the idol's."""
+
+    path: Path
+    fetched_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    characters: list[dict] = field(default_factory=list)
+    cards: list[dict] = field(default_factory=list)
+    costumes: list[dict] = field(default_factory=list)
+    stands: dict[str, list[str]] = field(default_factory=dict)
+    events: list[dict] = field(default_factory=list)
+
+    def card(
+        self,
+        idol: int,
+        enza_id: str,
+        name: str,
+        kind: Literal["produce", "support"] = "produce",
+        rarity: int = 4,
+        episodes: Sequence[tuple[int, str]] | None = (),
+    ) -> "GameCatalogFile":
+        """A card; `episodes` None for one whose episodes have not been looked up yet."""
+        self._character(idol)
+        self.cards.append({
+            "id": enza_id, "characterId": idol, "name": name, "kind": kind, "rarity": rarity,
+            "hash": "h1", "openAt": 0, "eventCount": 1 if episodes is None else len(episodes),
+            "episodes": None if episodes is None else [{"id": str(i), "title": t} for i, t in episodes],
+        })
+        return self
+
+    def costume(self, idol: int, enza_id: str, name: str, group: str) -> "GameCatalogFile":
+        self.costumes.append({"id": enza_id, "characterId": idol, "name": name, "group": group})
+        return self
+
+    def stand(self, enza_id: str, *categories: str) -> "GameCatalogFile":
+        """The game's asset server has these stands of the card or costume."""
+        self.stands[enza_id] = list(categories)
+        return self
+
+    def event(self, number: int, name: str, episodes: int) -> "GameCatalogFile":
+        self.events.append({
+            "id": str(100 + number), "name": name,
+            "episodes": [{"id": f"4001{number:03d}{e:02d}", "title": f"第{e}話"} for e in range(1, episodes + 1)],
+        })
+        return self
+
+    def write(self) -> Path:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps({
+            "version": 1, "fetchedAt": self.fetched_at.isoformat(), "characters": self.characters,
+            "cards": self.cards, "costumes": self.costumes, "stands": self.stands, "events": self.events,
+        }, ensure_ascii=False), encoding="utf-8")
+        return self.path
+
+    def _character(self, idol: int) -> None:
+        if all(c["id"] != idol for c in self.characters):
+            self.characters.append({"id": idol, "name": f"idol {idol}"})
 
 
 @dataclass

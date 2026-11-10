@@ -17,6 +17,7 @@ ENV PATH=/app/.venv/bin:$PATH \
     EIDOLON_CHARACTERS_PATH=/characters/characters.toml \
     EIDOLON_STORY_PATH=/corpus/SCTranslationData/data/story \
     EIDOLON_MIRROR_CACHE_PATH=/data/mirror \
+    EIDOLON_GAME_CATALOG_PATH=/corpus/game/catalog.json \
     EIDOLON_EVENT_NAMES_PATH=/deploy/event-names.toml
 EXPOSE 8000
 CMD ["eidolon"]

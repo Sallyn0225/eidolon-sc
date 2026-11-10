@@ -245,6 +245,7 @@ The first sync fills in every episode missing from the mirror and takes about on
 - **Event episodes**:
   - There is no listing, so they are found by script ID (`4001` + a three-digit event number + a two-digit episode number): the sync first fills in what is missing within the known range, then tries a few numbers beyond it.
   - Event names come from `deploy/event-names.toml` (write it following [`event-names.example.toml`](../deploy/event-names.example.toml); it is not committed). Events not in it show as 「活动剧情 NNN」, and the sync lists those numbers at the end.
+- **Card catalog**: Which cards there are, and their episodes and titles, come from ShinyColorsDB's API by default. Once you save a game account's login, they come from the game itself first, with ShinyColorsDB filling in what it lacks (names as the game has them, and new cards keep coming if ShinyColorsDB stops; [ADR-0034](adr/0034-card-catalog-from-the-logged-in-game.md)). See "游戏目录" in [`deploy.md`](deploy.md) for the steps.
 - **Politeness and failures**: Requests go out one at a time, about a second apart, and unchanged cards and albums are not requested again. If the mirror is unreachable, the translated episodes are still imported and the command exits with code 2.
 - **Options**: `--idol 1` syncs only one idol's cards and album (repeatable). The translations directory defaults to `EIDOLON_STORY_PATH`; you can also pass `--story`.
 

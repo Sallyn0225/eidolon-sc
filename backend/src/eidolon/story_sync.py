@@ -2,7 +2,10 @@
 
 A sync imports SCTranslationData's translated episodes first, then fills in what they
 lack from the ShinyColorsDB mirror (ADR-0004) as untranslated episodes, under the
-card's real name and the episode's title as the mirror's API gives them. The import
+card's real name and the episode's title as the mirror's API gives them. Given the
+game's own listing (`game_catalog`, ADR-0034), its cards come first, and the API only
+adds what it lacks (Hazuki's cards, cards whose episodes it has not looked up yet):
+the API failing then is no failure of the sync, only noted. The import
 rules are the usual ones (`story_import`): failure endings are left out, a translated
 episode is never replaced by an untranslated one, and a translation that arrives
 later replaces the untranslated episode under the same card, since SCTranslationData
@@ -46,8 +49,8 @@ do not recognise their script as one, are listed for the admin to check.
 An event's name comes from the admin's table of event names (`load_event_names`),
 read at every import so that a name filled in later reaches the catalog; an event
 not in the table takes the name SCTranslationData files its translated episodes
-under, if any, and is otherwise 「活动剧情 NNN」, never a made-up name. Its episodes
-are 「第N話」.
+under, if any, so that it stays together with them, or else the game's name for it,
+and is otherwise 「活动剧情 NNN」, never a made-up name. Its episodes are 「第N話」.
 
 The mirror being unreachable only costs this sync its untranslated episodes: what was
 downloaded before it failed is still imported, and the next sync picks up from there.
@@ -62,10 +65,11 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from eidolon.characters import Character
 from eidolon.corpus import CatalogEntry, StoryCorpus
-from eidolon.mirror import ALBUM_IDOLS, AlbumEpisode, CardEpisode, Mirror, MirrorError
+from eidolon.mirror import ALBUM_IDOLS, AlbumEpisode, Card, CardEpisode, Mirror, MirrorError
 from eidolon.script_cache import Fetched, ScriptCache
 from eidolon.story_import import (
     ImportReport,
@@ -88,6 +92,17 @@ PROBE_AHEAD = 3
 """How many event numbers after the latest known are tried, in case some are skipped."""
 _EPISODES_AT_MOST = 99
 """Two digits of episode; events have about eight."""
+
+
+class CardCatalog(Protocol):
+    """Which idols there are, their cards and each card's episodes: ShinyColorsDB's API
+    (`Mirror`), or the game's own listing (`GameCatalog`)."""
+
+    async def idols(self) -> list[int]: ...
+
+    async def cards(self, idol_id: int) -> list[Card]: ...
+
+    async def episodes(self, card: Card) -> list[CardEpisode]: ...
 
 
 class EventNamesError(RuntimeError):
@@ -147,10 +162,13 @@ class SyncReport:
     album_failures: int = 0
     """Failure endings in the albums asked about this sync, which are not downloaded."""
     unnamed_events: list[int] = field(default_factory=list)
-    """Events with untranslated episodes that neither the table of event names nor
-    SCTranslationData names."""
+    """Events with untranslated episodes that neither the table of event names,
+    SCTranslationData nor the game names."""
     mirror_error: str | None = None
     """Why the mirror could not be synced from, if it could not."""
+    api_error: str | None = None
+    """Why ShinyColorsDB's API could not add to the game's catalog, when that was given:
+    not the sync's failure."""
 
     @property
     def embedded_passages(self) -> int:
@@ -248,21 +266,33 @@ async def sync_stories(
     characters: Iterable[Character],
     mirror: Mirror,
     *,
+    catalog: CardCatalog | None = None,
     event_names: Mapping[int, str] | None = None,
+    game_event_names: Mapping[int, str] | None = None,
     idols: Sequence[int] | None = None,
 ) -> SyncReport:
     """Import SCTranslationData's CSVs from `story_directory`, then the mirror's card,
-    album and event episodes the corpus lacks, events named from `event_names`. `idols`
-    limits the mirror to those idols' cards and albums, and leaves events out."""
+    album and event episodes the corpus lacks, events named from `event_names` (and,
+    after SCTranslationData's names, `game_event_names`). The cards and their episodes
+    are the game's `catalog`'s, if given, and then the mirror's API's. `idols` limits the
+    mirror to those idols' cards and albums, and leaves events out."""
     characters = list(characters)
     report = SyncReport(await import_csv_directory(story_directory, corpus, characters))
     cache = _Cache(cache_directory)
     scripts = ScriptCache(cache_directory / _SCRIPTS_DIR, mirror, corpus)
     errors = []
+    if catalog is not None:
+        try:
+            await _fetch_cards(catalog, scripts, cache, report, idols)
+        except MirrorError as e:  # a script it lists
+            errors.append(str(e))
     try:
         await _fetch_cards(mirror, scripts, cache, report, idols)
     except MirrorError as e:
-        errors.append(str(e))
+        if catalog is None:
+            errors.append(str(e))
+        else:
+            report.api_error = str(e)
     try:  # the albums are elsewhere
         await _fetch_albums(mirror, scripts, cache, report, idols)
     except MirrorError as e:
@@ -273,8 +303,9 @@ async def sync_stories(
         except MirrorError as e:
             errors.append(str(e))
     report.mirror_error = "；".join(errors) or None
-    names = event_names or {}
-    event_files, report.unnamed_events = await _untranslated_event_scripts(scripts, corpus, names)
+    event_files, report.unnamed_events = await _untranslated_event_scripts(
+        scripts, corpus, event_names or {}, game_event_names or {}
+    )
     files = {
         file.source_id: file
         for file in [
@@ -290,15 +321,15 @@ async def sync_stories(
 
 
 async def _fetch_cards(
-    mirror: Mirror,
+    catalog: CardCatalog,
     scripts: ScriptCache,
     cache: _Cache,
     report: SyncReport,
     idols: Sequence[int] | None,
 ) -> None:
     seen: set[str] = set()  # a unit's card is listed under each of its idols
-    for idol in idols if idols is not None else await mirror.idols():
-        for card in await mirror.cards(idol):
+    for idol in idols if idols is not None else await catalog.idols():
+        for card in await catalog.cards(idol):
             if card.uuid in seen:
                 continue
             seen.add(card.uuid)
@@ -309,7 +340,7 @@ async def _fetch_cards(
                 for episode in known.episodes:
                     _count_card_script(await scripts.fetch(episode.script), episode, report)
                 continue
-            episodes = await mirror.episodes(card)
+            episodes = await catalog.episodes(card)
             # Its episodes are known now, so that what is downloaded is imported even if the
             # mirror fails before the card is done; until it is, it still counts as changed.
             unfinished = known.version if known is not None else ""
@@ -427,21 +458,25 @@ async def _walk_event(scripts: ScriptCache, report: SyncReport, event: int) -> i
 
 
 async def _untranslated_event_scripts(
-    scripts: ScriptCache, corpus: StoryCorpus, names: Mapping[int, str]
+    scripts: ScriptCache, corpus: StoryCorpus, names: Mapping[int, str], game_names: Mapping[int, str]
 ) -> tuple[list[ScriptFile], list[int]]:
     """Every event script kept so far that SCTranslationData has not translated, and the
     events of those that go unnamed.
 
     An event is named from the table as it is now; one the table lacks takes the name
     SCTranslationData files its translated episodes under, if it has any, so that the
-    event stays together in the catalog."""
+    event stays together in the catalog, or else the game's."""
     files = []
     unnamed: set[int] = set()
     for script, path in scripts.kept(_EVENT_SCRIPTS).items():
         if (found := _event_of(script)) is None or await corpus.is_translated(script):
             continue
         event, episode = found
-        name = names.get(event) or await _translated_event_name(corpus, event)
+        name = (
+            names.get(event)
+            or await _translated_event_name(corpus, event)
+            or game_names.get(event)
+        )
         if name is None:
             unnamed.add(event)
         source = name or f"活动剧情 {event:03d}"
