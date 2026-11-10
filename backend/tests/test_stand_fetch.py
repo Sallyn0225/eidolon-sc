@@ -362,10 +362,35 @@ def test_with_a_fresh_game_catalog_its_cards_and_costumes_with_stands_are_fetche
         "stand_costume/3000010020": (f"【シャイニーサマー2】{MANO}", "Mizugi"),  # its series'
         "stand/3000010030": (f"【はじめての衣装】{MANO}", "Special"),
     }
-    assert not [url for url in site.requests if "dresslist" in url]
     # Only the stands the game's asset server has are asked for.
     assert not [url for url in site.requests if "stand/3000010020" in url or "costume/3000010030" in url]
-    assert "卡牌和衣装取自游戏目录" in out
+    assert "卡牌和衣装先取自游戏目录" in out
+
+
+def test_with_a_fresh_game_catalog_shinycolorsdbs_api_failing_is_only_noted(
+    stands: Stands, site: FakeShinyColorsDB, tmp_path: Path
+):
+    site.outfit("stand", "1040010010")
+    game = (
+        GameCatalogFile(tmp_path / "game.json")
+        .card(1, "1040010010", "【ほわっとスマイル】櫻木 真乃")
+        .stand("1040010010", "stand")
+        .write()
+    )
+    handle = site.handle
+
+    def api_down(request: httpx.Request) -> httpx.Response:
+        if "dresslist" in str(request.url):
+            raise httpx.ConnectError("down", request=request)
+        return handle(request)
+
+    site.handle = api_down  # type: ignore[method-assign]
+
+    code, _, err = stands.fetch("--game-catalog", str(game))
+
+    assert code == 0, err
+    assert "这次没能问 ShinyColorsDB" in err
+    assert stands.outfits() == ["stand/1040010010"]
 
 
 def test_when_nothing_was_ever_fetched_and_shinycolorsdb_cannot_be_reached_there_is_nothing_to_list(

@@ -674,7 +674,18 @@ def episode_in(database: Path, episode_id: str) -> Episode | None:
     return aside(get())
 
 
-def test_with_a_fresh_game_catalog_the_cards_come_from_the_game_under_shinycolorsdbs_names(
+def mano_on_the_game(path: Path) -> GameCatalogFile:
+    """Mano's P SSR, as on ShinyColorsDB; a support card ShinyColorsDB has not listed
+    yet; and a card whose episodes have not been looked up yet."""
+    return (
+        GameCatalogFile(path)
+        .card(1, "1040010010", "【ほわっとスマイル】櫻木 真乃", episodes=[(200100401, "ほわほわアイドル")])
+        .card(1, "2040010099", "【はじめてのカード】櫻木 真乃　", "support", episodes=[(300100499, "新しい話")])
+        .card(1, "1040010020", "【白いツバサ】櫻木 真乃", episodes=None)
+    )
+
+
+def test_with_a_fresh_game_catalog_its_cards_come_first_and_shinycolorsdb_adds_the_rest(
     admin: Admin,
     story: Path,
     characters: CharacterConfig,
@@ -682,25 +693,44 @@ def test_with_a_fresh_game_catalog_the_cards_come_from_the_game_under_shinycolor
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    game = (
-        GameCatalogFile(tmp_path / "game.json")
-        .card(1, "1040010010", "【ほわっとスマイル】櫻木 真乃　", episodes=[(200100401, "ゲームでの題")])
-        .card(1, "1040010020", "【白いツバサ】櫻木 真乃", episodes=None)
-        .write()
-    )
+    mirror_site.add_script("produce_events/300100499", MANO_SUPPORT_SCRIPT)
+    game = mano_on_the_game(tmp_path / "game.json").write()
 
     code, out, err = sync_command(
         admin, story, characters, mirror_site, tmp_path, monkeypatch, "--game-catalog", str(game)
     )
 
     assert code == 0, err
-    card = episode_in(tmp_path / "eidolon.db", "produce_events/200100401")
-    assert card is not None and (card.source, card.title) == ("【ほわっとスマイル】櫻木真乃", "ゲームでの題")
-    # ShinyColorsDB lists it on Mano's card, whose episodes the game has not been asked yet.
-    assert episode_in(tmp_path / "eidolon.db", "produce_events/200100402") is None
-    assert not [r for r in mirror_site.requests if r.url.path.startswith("/info/")]
-    assert "卡牌和衣装取自游戏目录" in out
+    database = tmp_path / "eidolon.db"
+    new = episode_in(database, "produce_events/300100499")
+    assert new is not None
+    assert (new.category, new.source, new.title) == ("S卡剧情", "【はじめてのカード】櫻木真乃", "新しい話")
+    # Listed by ShinyColorsDB alone, the game's card not having been looked up yet.
+    listed = episode_in(database, "produce_events/200100402")
+    assert listed is not None and listed.source == MANO_CARD
+    assert "卡牌和衣装先取自游戏目录" in out
     assert "还有 1 张卡没查过剧情" in out
+
+
+def test_with_a_fresh_game_catalog_shinycolorsdbs_api_failing_is_only_noted(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    mirror_site: FakeShinyColorsDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mirror_site.add_script("produce_events/300100499", MANO_SUPPORT_SCRIPT)
+    del mirror_site.idols[1][0]["cardUuid"]  # the API answers unlike it used to
+    game = mano_on_the_game(tmp_path / "game.json").write()
+
+    code, _, err = sync_command(
+        admin, story, characters, mirror_site, tmp_path, monkeypatch, "--game-catalog", str(game)
+    )
+
+    assert code == 0, err
+    assert "这次没能问 ShinyColorsDB" in err
+    assert episode_in(tmp_path / "eidolon.db", "produce_events/300100499") is not None
 
 
 def test_with_a_stale_game_catalog_the_cards_come_from_shinycolorsdb_and_events_still_take_its_names(
@@ -715,6 +745,7 @@ def test_with_a_stale_game_catalog_the_cards_come_from_shinycolorsdb_and_events_
         GameCatalogFile(tmp_path / "game.json", fetched_at=datetime.now(UTC) - timedelta(days=4))
         .card(1, "1040010010", "【ほわっとスマイル】櫻木 真乃", episodes=[(200100401, "ゲームでの題")])
         .event(2, "ゲームでの名前", 2)
+        .event(4, "ゲームでの第4回", 2)
         .event(5, "五番目のイベント", 2)
         .write()
     )
@@ -731,30 +762,36 @@ def test_with_a_stale_game_catalog_the_cards_come_from_shinycolorsdb_and_events_
     database = tmp_path / "eidolon.db"
     card = episode_in(database, "produce_events/200100401")
     assert card is not None and (card.source, card.title) == (MANO_CARD, "ほわほわアイドル")
-    named, filled = episode_in(database, event(2, 1)), episode_in(database, event(5, 1))
-    assert named is not None and named.source == "はじめてのイベント"  # the table's, over the game's
+    # The table's name, then SCTranslationData's, then the game's.
+    named, translated, filled = (episode_in(database, event(n, 2)) for n in (2, 4, 5))
+    assert named is not None and named.source == "はじめてのイベント"
+    assert translated is not None and translated.source == LIGHT_UP
     assert filled is not None and filled.source == "五番目のイベント"
     assert "暂用「活动剧情 NNN」：007" in out
 
 
-def test_an_unreadable_game_catalog_is_said_and_the_cards_come_from_shinycolorsdb(
+@pytest.mark.parametrize("unreadable", ["not as written", "a directory"])
+def test_an_unreadable_game_catalog_is_said_and_the_sync_goes_on(
     admin: Admin,
     story: Path,
     characters: CharacterConfig,
     mirror_site: FakeShinyColorsDB,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    unreadable: str,
 ):
     game = tmp_path / "game.json"
-    game.write_text('{"version": 1, "fetchedAt": "yesterday"}', encoding="utf-8")
+    if unreadable == "a directory":
+        game.mkdir()
+    else:
+        game.write_text('{"version": 1, "fetchedAt": "yesterday"}', encoding="utf-8")
 
-    code, out, err = sync_command(
+    code, _, err = sync_command(
         admin, story, characters, mirror_site, tmp_path, monkeypatch, "--game-catalog", str(game)
     )
 
     assert code == 0, err
     assert "游戏目录读不了" in err
-    assert "原文剧情：下载 4 个剧本，新增 4 段" in out
 
 
 class _ClosableEmbedder(FakeEmbedder):

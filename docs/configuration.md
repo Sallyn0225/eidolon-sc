@@ -245,7 +245,7 @@ docker compose exec backend eidolon story sync
 - **活动剧情**：
   - 没有目录，按剧本编号（`4001` + 三位活动编号 + 两位话数）推算：先补齐已知范围内缺的，再往后试探几个编号。
   - 活动名来自 `deploy/event-names.toml`（参照 [`event-names.example.toml`](../deploy/event-names.example.toml) 编写，不进仓库）。没填的活动显示为「活动剧情 NNN」，同步结束时会列出这些编号。
-- **卡牌目录**：有哪些卡、剧情和标题默认问 ShinyColorsDB 的 API；存了一个游戏账号的登录态后，改从游戏自己查（名字和游戏里一样，ShinyColorsDB 停了也能接着同步新卡，[ADR-0034](adr/0034-card-catalog-from-the-logged-in-game.md)），步骤见 [`deploy.md`](deploy.md) 的「游戏目录」。
+- **卡牌目录**：有哪些卡、剧情和标题默认问 ShinyColorsDB 的 API；存了一个游戏账号的登录态后，先从游戏自己查，ShinyColorsDB 补上它没有的（名字和游戏里一样，ShinyColorsDB 停了也能接着同步新卡，[ADR-0034](adr/0034-card-catalog-from-the-logged-in-game.md)），步骤见 [`deploy.md`](deploy.md) 的「游戏目录」。
 - **礼貌与容错**：请求一个一个发，间隔约一秒，没有变化的卡和相册不再请求。镜像连不上时汉化版照常导入，命令以退出码 2 结束。
 - **参数**：`--idol 1` 只同步某位偶像的卡和相册（可重复）；汉化版目录默认取 `EIDOLON_STORY_PATH`，也可以用 `--story` 指定。
 

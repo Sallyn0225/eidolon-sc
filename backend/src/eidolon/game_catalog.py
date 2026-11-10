@@ -23,10 +23,11 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from eidolon.clock import utc_now
 from eidolon.mirror import Card, CardEpisode, Dress
 
 FRESH_FOR = timedelta(days=3)
@@ -46,7 +47,7 @@ class GameCatalogError(RuntimeError):
     """The catalog file is not as `game:catalog` writes it."""
 
 
-def game_name(name: str) -> str:
+def shinycolorsdb_name(name: str) -> str:
     """A card's or costume's name as ShinyColorsDB writes it: no whitespace after the 【】."""
     match = _NAMED.fullmatch(name.strip())
     assert match is not None  # the pattern matches anything
@@ -84,7 +85,7 @@ class GameCatalog:
             self._idols = sorted({int(c["id"]) for c in data["characters"]})
             self._cards = [_card(card) for card in data["cards"]]
             self._costumes = [
-                _Costume(str(c["id"]), int(c["characterId"]), game_name(c["name"]), str(c.get("group") or ""))
+                _Costume(str(c["id"]), int(c["characterId"]), shinycolorsdb_name(c["name"]), str(c.get("group") or ""))
                 for c in data["costumes"]
             ]
             stands = data.get("stands")
@@ -107,6 +108,8 @@ class GameCatalog:
             data = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
+        except OSError as e:  # not allowed to read it, a directory
+            raise GameCatalogError(f"读不了 {path}（{e}）") from e
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             raise GameCatalogError(f"{path} 不是 JSON（{e}）") from e
         if not isinstance(data, dict):
@@ -116,11 +119,11 @@ class GameCatalog:
         except GameCatalogError as e:
             raise GameCatalogError(f"{path}：{e}") from None
 
-    def age(self, now: datetime | None = None) -> timedelta:
-        return (now or datetime.now(UTC)) - self.fetched_at
+    def age(self) -> timedelta:
+        return utc_now() - self.fetched_at
 
-    def is_fresh(self, now: datetime | None = None) -> bool:
-        return self.age(now) <= FRESH_FOR
+    def is_fresh(self) -> bool:
+        return self.age() <= FRESH_FOR
 
     @property
     def cards_pending(self) -> int:
@@ -160,11 +163,11 @@ class GameCatalog:
         and kind there, which a dress already fetched keeps."""
         kinds = self._costume_kinds(known)
         dresses: dict[str, Dress] = {}
-        named = [(card.id, card.idol, card.name, card.type) for card in self._cards]
+        cards = [(card.id, card.idol, card.name, card.type) for card in self._cards]
         costumes = [
             (c.id, c.idol, c.name, kinds.get(c.group, _DEFAULT_COSTUME_KIND)) for c in self._costumes
         ]
-        for enza_id, idol, name, kind in [*named, *costumes]:  # a card's own name first
+        for enza_id, idol, name, kind in [*cards, *costumes]:  # a card's own name first
             if idol != idol_id or enza_id in dresses:
                 continue
             stands = self._stands_of(enza_id)
@@ -175,9 +178,10 @@ class GameCatalog:
         return list(dresses.values())
 
     def _stands_of(self, enza_id: str) -> list[str]:
-        if self._stands is None:  # not read this time: ask for both, as for a dress without a place
-            return list(STAND_CATEGORIES)
-        return [category for category in STAND_CATEGORIES if category in self._stands.get(enza_id, ())]
+        """Which stands the game's asset server has of the card or costume; none when the
+        asset map was not read, rather than asking for both of every one every week."""
+        stands = (self._stands or {}).get(enza_id, ())
+        return [category for category in STAND_CATEGORIES if category in stands]
 
     def _costume_kinds(self, known: Mapping[str, tuple[str, str]]) -> dict[str, str]:
         """The kind most of each series' costumes have in the manifest."""
@@ -195,7 +199,7 @@ def _card(card: Mapping[str, Any]) -> _GameCard:
     return _GameCard(
         id=str(card["id"]),
         idol=int(card["characterId"]),
-        name=game_name(card["name"]),
+        name=shinycolorsdb_name(card["name"]),
         type=f"{side}_{_RARITIES.get(rarity, rarity)}",
         hash=str(card.get("hash") or ""),
         event_count=int(card.get("eventCount") or 0),

@@ -1,8 +1,8 @@
 /**
  * 游戏目录（ADR-0034）：用存下的登录态，在无界面的 Chromium 里打开游戏，进到 HOME 后借游戏自己的接口模块只读地查
  * 28 位偶像的卡、每张卡的剧情和标题、P デスク的衣装、相册里的活动，再从游戏已经载入的资源清单里读出哪些衣装有立绘，
- * 写成一份 JSON。`eidolon story sync` 和 `eidolon stand fetch` 在它 3 天内更新过时从这里取卡牌、剧情标题和衣装，
- * 不再依赖 ShinyColorsDB 的 API（backend/src/eidolon/game_catalog.py 读它）。
+ * 写成一份 JSON。`eidolon story sync` 和 `eidolon stand fetch` 在它 3 天内更新过时先从这里取卡牌、剧情标题和衣装，
+ * ShinyColorsDB 的 API 只补上它没有的，停了也不碍事（backend/src/eidolon/game_catalog.py 读它）。
  *
  * 请求都走游戏自己的请求队列（加密、会话、版本号都由游戏处理），一个接一个，间隔至少 1 秒；只发 GET，不点卡、不读剧情。
  * 卡的剧情要一张一张查，每次最多查 --max-cards 张（新卡优先），查过的记在目录里，卡的数据没变就不再查。
@@ -15,7 +15,7 @@
  * --sign-in 打开一个有界面的浏览器，等你在里面登录游戏、点开始进到 HOME，再把登录态存下来（要在有桌面的电脑上运行，
  * 存下的文件拷到服务器上同样的位置）。登录态默认取环境变量 EIDOLON_GAME_LOGIN_PATH（没有时是 ../game-login.json），
  * 里面是账号的登录凭据，不要放进仓库或发给别人。游戏目录默认取 EIDOLON_GAME_CATALOG_PATH（没有时是
- * ../corpus/game/catalog.json）。--if-older-than：目录在这么多小时内更新过就不再查（同步脚本用它避免一周登录两次）。
+ * ../corpus/game/catalog.json）。--if-older-than：目录在这么多小时内更新过就不再查（同步脚本用它，剧情和立绘的同步隔一天跑也只登录一次）。
  * --if-signed-in：没存过登录态时什么也不做（同步脚本用它，没用这个功能的部署照常同步）。
  *
  * 退出码：0 成功（或者目录还新，没有再查）；1 没有登录态、参数不对，或者打不开 Chromium；2 登录态失效了，要重新
@@ -104,13 +104,14 @@ async function main(): Promise<number> {
   }
   const browser = await launch(true);
   if (!browser) return 1;
+  let entered: BrowserContext | null = null;
   try {
     const context = await browser.newContext({ storageState: statePath, viewport: VIEWPORT, locale: "ja-JP" });
     const page = await context.newPage();
     await enterHome(page, HOME_TIMEOUT_MS, true);
+    entered = context;
     const catalog = await collect(page, previous, maxCards);
     await writeAtomically(outPath, JSON.stringify(catalog, null, 1) + "\n");
-    await saveState(context); // 登录凭据可能更新过
     report(catalog);
     return 0;
   } catch (error) {
@@ -121,6 +122,8 @@ async function main(): Promise<number> {
     console.error(`没能从游戏查到目录，旧的目录原样保留：${messageOf(error)}`);
     return 3;
   } finally {
+    // 进过游戏，登录凭据就可能更新过：查没查成都存回去。
+    if (entered) await saveState(entered).catch((error) => console.warn(`注意：没能存回登录态：${messageOf(error)}`));
     await browser.close();
   }
 }
@@ -230,7 +233,7 @@ function standsInAssetMap(): Record<string, string[]> | null {
 async function collect(page: Page, previous: Catalog | null, maxCards: number): Promise<Catalog> {
   const modules = await page.evaluate(findModules);
   if (!modules.api) throw new GameFailed("游戏改版了，找不到接口模块");
-  if (!modules.assets) console.warn("注意：找不到资源清单模块，这次不知道哪些衣装有立绘，eidolon stand fetch 会两种都试");
+  if (!modules.assets) console.warn("注意：找不到资源清单模块，这次不知道哪些衣装有立绘，eidolon stand fetch 只问 ShinyColorsDB");
   let last = 0;
   const get = async <T,>(apiPath: string, query?: Record<string, unknown>): Promise<T> => {
     const wait = last + REQUEST_INTERVAL_MS - Date.now();
@@ -254,7 +257,7 @@ async function collect(page: Page, previous: Catalog | null, maxCards: number): 
   const events = album.gameEvents.map((event) => ({
     id: String(event.id),
     name: event.name,
-    episodes: (event.communications ?? []).map((e) => ({ id: String(e.id), title: e.title ?? "" })),
+    episodes: episodesFrom(event.communications),
   }));
 
   const known = new Map((previous?.cards ?? []).map((card) => [card.id, card]));
@@ -275,7 +278,8 @@ async function collect(page: Page, previous: Catalog | null, maxCards: number): 
       };
       const before = known.get(card.id);
       if (card.eventCount === 0) card.episodes = [];
-      else if (before?.episodes && before.hash === card.hash) card.episodes = before.episodes;
+      else if (before?.episodes && before.hash === card.hash && before.eventCount === card.eventCount)
+        card.episodes = before.episodes;
       cards.push(card);
     }
   }
@@ -319,19 +323,22 @@ async function episodesOf(
   get: <T>(apiPath: string, query?: Record<string, unknown>) => Promise<T>,
   card: CatalogCard,
 ): Promise<{ id: string; title: string }[]> {
-  const pick = (events: { id: string; title?: string }[] | undefined) =>
-    (events ?? []).map((e) => ({ id: String(e.id), title: e.title ?? "" }));
   if (card.kind === "produce") {
     const status = await get<{ idol: { produceIdolEvents?: GameEpisode[]; produceAfterEvents?: GameEpisode[] } }>(
       "userIdols/statusMax",
       { idolId: card.id },
     );
-    return [...pick(status.idol.produceIdolEvents), ...pick(status.idol.produceAfterEvents)];
+    return [...episodesFrom(status.idol.produceIdolEvents), ...episodesFrom(status.idol.produceAfterEvents)];
   }
   const status = await get<{ supportIdol: { produceSupportIdolEvents?: GameEpisode[] } }>("userSupportIdols/statusMax", {
     supportIdolId: card.id,
   });
-  return pick(status.supportIdol.produceSupportIdolEvents);
+  return episodesFrom(status.supportIdol.produceSupportIdolEvents);
+}
+
+/** 游戏列出的剧情（卡的、活动的）：剧本编号和标题。 */
+function episodesFrom(episodes: GameEpisode[] | undefined): { id: string; title: string }[] {
+  return (episodes ?? []).map((e) => ({ id: String(e.id), title: e.title ?? "" }));
 }
 
 interface GameEpisode {
@@ -385,14 +392,16 @@ async function readCatalog(): Promise<Catalog | null> {
 
 async function saveState(context: BrowserContext): Promise<void> {
   const state = await context.storageState();
-  await writeAtomically(statePath, JSON.stringify(state));
+  // 只有自己能读：里面是账号的登录凭据。
+  await writeAtomically(statePath, JSON.stringify(state), 0o600);
   await chmod(statePath, 0o600).catch(() => {}); // Windows 上没有这种权限位
 }
 
-async function writeAtomically(file: string, content: string): Promise<void> {
+/** 写好再换上，不会留下写了一半的文件。目录要让后端（可能是别的用户）读得到，用默认的权限。 */
+async function writeAtomically(file: string, content: string, mode?: number): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   const partial = `${file}.part`;
-  await writeFile(partial, content, { mode: 0o600 });
+  await writeFile(partial, content, mode === undefined ? undefined : { mode });
   await rename(partial, file);
 }
 
