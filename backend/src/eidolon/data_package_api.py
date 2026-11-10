@@ -14,6 +14,7 @@ in the page's memory: a refusal there would be a page of JSON. It asks
 `GET /api/account/data-package/export-check?include=…` first, refused as the export would be
 but for what happens while the package is written, and shows a refusal itself."""
 
+import asyncio
 import logging
 import math
 import os
@@ -120,13 +121,17 @@ def add_data_package_routes(app: FastAPI, backend: Backend) -> None:
         try:
             with packages.one_at_a_time(user_id):
                 await packages.check_imports_left(user_id)
-                with path.open("wb") as file:
+                # The disk written on a thread, so a slow disk keeps no one else waiting.
+                file = await asyncio.to_thread(path.open, "wb")
+                try:
                     size = 0
                     async for chunk in request.stream():
                         size += len(chunk)
                         if size > limit:
                             raise TooLarge()
-                        file.write(chunk)
+                        await asyncio.to_thread(file.write, chunk)
+                finally:
+                    await asyncio.to_thread(file.close)
                 imported = await packages.import_(user_id, path, categories, device_timezone)
         except (Busy, ImportsUsedUp, TooLarge, TooNew, BrokenPackage):
             raise
