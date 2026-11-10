@@ -20,6 +20,11 @@ reached, or answers unlike it used to, what was fetched until then is kept and l
 A file the CDN lacks is asked of the game's asset server (`Mirror.stand_file`), so is an
 outfit the API lists without a place: the server keeps every outfit where the CDN would,
 `spine/idols/{category}/{enza_id}/`.
+
+Given the game's own listing (`game_catalog`, ADR-0034), its dresses come first: every
+card and costume with a stand on the game's asset server, under the name and kind the
+manifest already gives it, if it has one. The API's are still asked for, for what the
+game does not list (Hazuki's support cards); the API failing then is only noted.
 """
 
 import logging
@@ -28,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from eidolon.characters import Character
+from eidolon.game_catalog import GameCatalog
 from eidolon.mirror import Dress, Mirror, MirrorError
 from eidolon.stand_outfits import (
     CATEGORIES,
@@ -54,18 +60,38 @@ class FetchReport:
     """Why outfits ShinyColorsDB lists were left out this time."""
     error: str | None = None
     """Why ShinyColorsDB could not be asked for the rest, if it could not."""
+    api_error: str | None = None
+    """Why ShinyColorsDB's API could not add to the game's dresses, when those were given:
+    not the fetch's failure."""
 
 
-async def fetch_stands(build: Path, characters: Iterable[Character], mirror: Mirror) -> FetchReport:
+async def fetch_stands(
+    build: Path, characters: Iterable[Character], mirror: Mirror, game: GameCatalog | None = None
+) -> FetchReport:
+    """Fetch the stands of each character's dresses that the source lacks: the dresses
+    `game` lists, if given, and those ShinyColorsDB's API does."""
     source = source_directory(build)
     manifest = read_manifest(source)
     entries = {entry.get("path"): entry for entry in manifest or []}
+    known = {
+        str(entry["enzaId"]): (str(entry.get("dressName", "")), str(entry.get("dressType", "")))
+        for entry in manifest or []
+        if entry.get("enzaId")
+    }
     report = FetchReport()
     try:
         for character in characters:
             if character.idol_id is None:
                 continue
-            for dress in await mirror.dresses(character.idol_id):
+            dresses = [] if game is None else game.dresses(character.idol_id, known)
+            if report.api_error is None:
+                try:
+                    dresses += await mirror.dresses(character.idol_id)
+                except MirrorError as e:
+                    if game is None:
+                        raise
+                    report.api_error = str(e)  # not asked again this time
+            for dress in dresses:
                 for category in CATEGORIES:
                     if category not in dress.stands:
                         continue

@@ -89,6 +89,16 @@ if [ "$git_failed" = 1 ]; then
     finish 3
   fi
 fi
+# 游戏目录（ADR-0034）：用 npm run game:login 存过登录态时，先从游戏查一遍卡牌和剧情标题，同步从这里取；没存过时
+# 什么也不做。要 Node.js 和 frontend 的依赖（npm --prefix frontend ci），没装就跳过。查不了（登录态失效、维护中）
+# 不影响同步：ShinyColorsDB 照样会问，游戏目录 3 天没更新就只问它。两天内查过的（立绘同步刚查过）不再查。
+if command -v npm >/dev/null && [ -d frontend/node_modules/playwright ]; then
+  npm --prefix frontend run --silent game:catalog -- --if-signed-in --if-older-than 48
+  catalog_code=$?
+  if [ "$catalog_code" != 0 ]; then
+    say "npm run game:catalog 以 $catalog_code 结束（2：登录态失效，要重新 npm run game:login；3：游戏或接口出错），照常同步"
+  fi
+fi
 
 if [ "${EIDOLON_SYNC_DIRECT:-}" = 1 ]; then
   if ! command -v uv >/dev/null; then

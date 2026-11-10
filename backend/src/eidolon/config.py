@@ -707,6 +707,12 @@ def event_names_path_from_env() -> Path:
     return Path(os.environ.get("EIDOLON_EVENT_NAMES_PATH", "../deploy/event-names.toml"))
 
 
+def game_catalog_path_from_env() -> Path:
+    """What `npm run game:catalog` saved from the logged-in game (ADR-0034), which the story
+    sync and the stand fetch take the cards from while it is fresh."""
+    return Path(os.environ.get("EIDOLON_GAME_CATALOG_PATH") or "../corpus/game/catalog.json")
+
+
 def stand_assets_url_from_env() -> str | None:
     """`EIDOLON_STAND_ASSETS_URL`, the stands' public address, without a trailing slash."""
     value = (os.environ.get("EIDOLON_STAND_ASSETS_URL") or "").strip().rstrip("/")

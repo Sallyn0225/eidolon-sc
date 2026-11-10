@@ -141,6 +141,55 @@ docker compose -f docker-compose.prod.yml exec backend eidolon story import-json
 
 导入的结果存在数据库里。只手动导入时，之后可以删掉 `corpus/` 节省空间；用每周同步时要保留 `corpus/SCTranslationData`，脚本每次只 `git pull` 增量更新。
 
+## 游戏目录（可选）
+
+剧情同步和立绘同步要先知道有哪些卡、每张卡有哪些剧情、叫什么、有哪些衣装。默认问 ShinyColorsDB 的 API；存了一个游戏账号的登录态后，先从游戏自己那里查，ShinyColorsDB 还在时补上游戏目录没有的（[ADR-0034](adr/0034-card-catalog-from-the-logged-in-game.md)）：ShinyColorsDB 停了也能接着同步新卡，名字和标题都是游戏里的，活动名对照表没写的活动也有名字。剧本和立绘文件照旧先从镜像拉、再从官方资源服务器拉。
+
+`frontend/` 的 `npm run game:catalog` 用存下的登录态，在无界面的 Chromium 里打开游戏、进到 HOME，借游戏自己的接口只读地查一遍，写进 `corpus/game/catalog.json`。一次大约 1 分半钟，只发 GET，一个接一个、间隔至少 1 秒。配好以后 `deploy/story-sync.sh` 和 `deploy/stand-sync.sh` 同步前会自动运行它（两天内查过的不再查，两个同步隔一天跑也只登录一次）；同步时目录 3 天内更新过就先用它，否则只问 ShinyColorsDB。
+
+**用一个不拿来玩的账号。** 自动登录可能违反 enza 的利用规约，有被封号的风险；而且一个账号同一时间只能在一处登录，这里一登录，你手机或电脑上的游戏就会掉线。
+
+### 第一次登录
+
+在有桌面的电脑上（服务器没有显示器，打不开登录窗口），仓库根目录下：
+
+```sh
+cd frontend
+npm ci
+npx playwright install chromium
+npm run game:login
+```
+
+会打开一个浏览器窗口：在里面登录游戏，点开始进到 HOME，登录态就会自动存进仓库根目录的 `game-login.json`（可用 `EIDOLON_GAME_LOGIN_PATH` 改位置）。这个文件就是账号的登录凭据，已被 git 忽略，不要发给别人。把它拷到服务器上仓库的根目录：
+
+```sh
+scp game-login.json you@server:/home/you/eidolon-sc/
+```
+
+服务器上要有 Node.js、frontend 的依赖和 Playwright 的 Chromium（同步立绘本来就要，见「立绘素材」）。先手动运行一次，看看能不能查到：
+
+```sh
+cd frontend && npm run game:catalog
+# 游戏目录：28 位偶像，1107 张卡（还有 1067 张没查剧情，下次接着查），1450 套衣装，97 个活动，……
+```
+
+卡的剧情要一张一张查，每次最多查 40 张，新卡优先，其余的之后每周接着查，还没查的卡由 ShinyColorsDB 补。要是新部署时 ShinyColorsDB 已经停了，可以一次查完：`npm run game:catalog -- --max-cards 2000`（约半小时）。
+
+### 日志和退出码
+
+同步脚本把 `game:catalog` 的输出写进各自的日志。剧情同步和立绘拉取的报告里，用了游戏目录时有一行「卡牌和衣装先取自游戏目录（N 小时前保存）」；没用上时 stderr 里会说原因，例如「游戏目录已经 4 天没更新……这次只问 ShinyColorsDB」。用了游戏目录、ShinyColorsDB 却连不上时只提示「这次没能问 ShinyColorsDB」，不算同步失败。
+
+| 退出码 | 含义 | 要做什么 |
+|---|---|---|
+| 0 | 查到了，或者目录两天内刚更新过（同步脚本调用时），或者没存过登录态（同步脚本调用时什么也不做） | 不用管 |
+| 1 | 没有登录态、参数不对，或者打不开 Chromium | 按提示补上；Chromium 用 `npx playwright install --with-deps chromium` 装 |
+| 2 | 登录态失效了（被带到了登录页） | 在有桌面的电脑上重新 `npm run game:login`，再拷过来 |
+| 3 | 游戏或接口出错：维护中、游戏改版后认不出接口模块、接口没有回应；旧的目录原样保留 | 维护时不用管；连续几周都是 3，多半是游戏改版了，要改 `frontend/scripts/game-catalog.mts` |
+
+`game:catalog` 出错不影响同步：同步照常进行，目录 3 天没更新就只问 ShinyColorsDB。
+
+P デスク里只有 28 位偶像，所以はづき的 S 卡和联动卡不在游戏目录里，由 ShinyColorsDB 补；它停了以后，新出的はづき S 卡剧情就进不来了。她的衣装不受影响。
+
 ## 更换向量化服务、模型或维度
 
 库里只保留当前模型的向量，换了之后要用库里的原文重新向量化一遍（不需要重新下载或导入剧情）：
@@ -268,7 +317,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval memory --jso
 
 `deploy/stand-sync.sh` 从 ShinyColorsDB 拉取新卡、把立绘上传到存储桶（ADR-0011），分四步：
 
-1. `eidolon stand fetch`：每次都向 ShinyColorsDB 的 API 重新要 `characters.toml` 里配了 `idol_id` 的每位角色的卡，从它的 CDN 下载整理目录的 `source/` 里还没有的私服和演出服（不下载 Q 版小人）。衣装的文件不会变，已经有的不再下载；请求一个一个发、间隔约 1 秒，第一次拉 4 位角色要十几分钟，之后只拉新卡。`source/spine_manifest.json` 记着拉到的每套衣装，只增不减：上游哪天不再列某张卡，换衣装面板上也照常有它。上游列了却还没有文件（或发来的文件不对）的衣装跳过并提示，下次同步再试。ShinyColorsDB 连不上或接口变了时，已拉到的照常保留，后面三步用已有的素材照常跑，同步以退出码 6 结束。
+1. `eidolon stand fetch`：每次都向 ShinyColorsDB 的 API 重新要 `characters.toml` 里配了 `idol_id` 的每位角色的卡，从它的 CDN 下载整理目录的 `source/` 里还没有的私服和演出服（不下载 Q 版小人）。衣装的文件不会变，已经有的不再下载；请求一个一个发、间隔约 1 秒，第一次拉 4 位角色要十几分钟，之后只拉新卡。`source/spine_manifest.json` 记着拉到的每套衣装，只增不减：上游哪天不再列某张卡，换衣装面板上也照常有它。上游列了却还没有文件（或发来的文件不对）的衣装跳过并提示，下次同步再试。ShinyColorsDB 连不上或接口变了时，已拉到的照常保留，后面三步用已有的素材照常跑，同步以退出码 6 结束。存了游戏的登录态时（见「游戏目录」），衣装先从游戏目录取，ShinyColorsDB 补上它没有的，这时它连不上只提示、不算失败。
 2. `eidolon stand outfits`：从拉取到的立绘为每位配了 `idol_id` 的角色整理衣装清单，写进整理目录。`default_outfit` 不在清单里时会提示。
 3. `npm run stand:thumbnails`（在 `frontend/` 里）：用和通话层同一套播放代码，在无界面的 Chromium 里给每套衣装渲染一张缩略图，渲染前先让动画走约 1 秒，避开待机表情开头的眨眼。已经有缩略图的不再渲染，想全部重画时删掉整理目录里的 `thumbnails/`（或者直接运行 `npm run stand:thumbnails -- --force`）。
 4. `eidolon stand upload`：上传衣装清单列出的每套衣装的文件、缩略图，最后上传衣装清单。缩略图渲染失败的衣装照常上传、照常列在清单里，换衣装面板上暂时没有它的缩略图，下次同步补上。存储桶里已经有、内容相同的（按 ETag 比较 MD5）不重复上传，所以再次同步时只多列一次存储桶。

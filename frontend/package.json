@@ -9,6 +9,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "stand:thumbnails": "node --env-file-if-exists=../.env scripts/stand-thumbnails.mts",
+    "game:login": "node --env-file-if-exists=../.env scripts/game-catalog.mts --sign-in",
+    "game:catalog": "node --env-file-if-exists=../.env scripts/game-catalog.mts",
     "screenshots": "node --env-file-if-exists=../.env scripts/screenshots.mts",
     "readme-media": "node scripts/readme-media.mts"
   },

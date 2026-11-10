@@ -1,5 +1,6 @@
 #!/bin/sh
-# 同步立绘素材：从 ShinyColorsDB 为配了 idol_id 的角色拉取新卡（eidolon stand fetch，ADR-0011）、整理衣装清单
+# 同步立绘素材：为配了 idol_id 的角色拉取新卡（eidolon stand fetch，ADR-0011；存过游戏的登录态时卡牌和衣装的列表
+# 先用 npm run game:catalog 从游戏查，ADR-0034，ShinyColorsDB 补上它没有的）、整理衣装清单
 # （eidolon stand outfits）、渲染缩略图（frontend 的 npm run stand:thumbnails），再上传到 S3 兼容的存储桶
 # （eidolon stand upload）。适合每周用 cron 跑一次，没有新卡时几乎不花时间。
 # 在服务器或自己的电脑上运行都行，不经过 docker；步骤和要装的东西见
@@ -18,7 +19,7 @@
 #   3  有衣装的缩略图没渲染出来：其余照常上传，下次同步再渲染
 #   4  缺少运行环境：uv、Node.js、frontend 的依赖或 Playwright 的 Chromium
 #   5  上一次同步还没结束，这次没有运行
-#   6  没能从 ShinyColorsDB 拉取完新卡：已拉取的和以前的照常上传，下次同步再拉剩下的
+#   6  没能拉取完新卡（ShinyColorsDB 或官方资源服务器出错）：已拉取的和以前的照常上传，下次同步再拉剩下的
 
 set -u
 
@@ -42,7 +43,7 @@ finish() {
     3) meaning="有衣装的缩略图没渲染出来，其余已上传；下次同步再渲染" ;;
     4) meaning="缺少运行环境，见上方的说明" ;;
     5) meaning="上一次同步还没结束，这次没有运行" ;;
-    6) meaning="没能从 ShinyColorsDB 拉取完新卡，其余照常同步；下次同步再拉" ;;
+    6) meaning="没能拉取完新卡，其余照常同步；下次同步再拉" ;;
     *) meaning="未知" ;;
   esac
   say "==== 结束：退出码 $1（$meaning）"
@@ -85,6 +86,17 @@ if [ -f .env ]; then
   env_file="--env-file=../.env"
 fi
 
+# 游戏目录（ADR-0034）：用 npm run game:login 存过登录态时，先从游戏查一遍卡牌和衣装，拉取从这里取；没存过时什么
+# 也不做。查不了（登录态失效、维护中）不影响同步：ShinyColorsDB 照样会问，游戏目录 3 天没更新就只问它。
+# 两天内查过的（剧情同步刚查过）不再查。
+if command -v npm >/dev/null && [ -d frontend/node_modules/playwright ]; then
+  npm --prefix frontend run --silent game:catalog -- --if-signed-in --if-older-than 48
+  catalog_code=$?
+  if [ "$catalog_code" != 0 ]; then
+    say "npm run game:catalog 以 $catalog_code 结束（2：登录态失效，要重新 npm run game:login；3：游戏或接口出错），照常同步"
+  fi
+fi
+
 say "eidolon stand fetch"
 # shellcheck disable=SC2086 # 没有 .env 时 $env_file 为空，不传这个参数
 (cd backend && PYTHONUNBUFFERED=1 uv run --quiet $env_file eidolon stand fetch)
@@ -92,7 +104,7 @@ fetch_code=$?
 case $fetch_code in
   0) fetch_failed=0 ;;
   1) finish 1 ;;
-  2) fetch_failed=1 ;; # ShinyColorsDB 连不上或接口变了：用已有的素材照常同步
+  2) fetch_failed=1 ;; # ShinyColorsDB 或官方资源服务器连不上、接口变了：用已有的素材照常同步
   *)
     say "eidolon stand fetch 以 $fetch_code 结束"
     finish 1

@@ -55,6 +55,8 @@ services:
       EIDOLON_ICE_SERVERS: ${EIDOLON_ICE_SERVERS:-stun:${EIDOLON_DOMAIN}:3478}
       EIDOLON_TURN_URLS: turn:${EIDOLON_DOMAIN}:3478?transport=udp,turn:${EIDOLON_DOMAIN}:3478?transport=tcp
       EIDOLON_TURN_SECRET: ${EIDOLON_TURN_SECRET:?请在 .env 里填写 EIDOLON_TURN_SECRET}
+      # npm run game:catalog 在主机上写进 corpus/game/；.env 里给主机设的路径到容器里不对
+      EIDOLON_GAME_CATALOG_PATH: /corpus/game/catalog.json
     volumes:
       - eidolon-data:/data # 数据库（用户、对话、记忆、剧情库）和同步下载的原始剧本缓存 /data/mirror
       - ./characters:/characters:ro # 人设、角色资料、头像
