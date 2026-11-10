@@ -4,18 +4,19 @@ translations, then the card and event episodes they lack from the ShinyColorsDB 
 
 import json
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
 import pytest
 
 from eidolon.characters import load_characters
-from eidolon.corpus import CatalogEntry, Line, StoryCorpus
+from eidolon.corpus import CatalogEntry, Episode, Line, StoryCorpus
 from eidolon.data_access import Database
 from eidolon.mirror import Mirror
 from eidolon.story_sync import PROBE_AHEAD, SyncReport, sync_stories
-from tests.conftest import Admin, CharacterConfig
-from tests.fakes import FakeEmbedder, FakeShinyColorsDB
+from tests.conftest import Admin, CharacterConfig, aside
+from tests.fakes import FakeEmbedder, FakeShinyColorsDB, GameCatalogFile
 from tests.stories import (
     EVENT_TRANSLATED,
     KOGANE_SCRIPT,
@@ -637,6 +638,123 @@ def test_the_sync_command_reports_a_missing_story_directory(admin: Admin, tmp_pa
     err = admin.fails("story", "sync", "--story", str(tmp_path / "nowhere"))
 
     assert "nowhere" in err
+
+
+# The game's own catalog (ADR-0034), as `npm run game:catalog` saves it.
+
+
+def sync_command(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    site: FakeShinyColorsDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *args: str,
+) -> tuple[int, str, str]:
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
+    monkeypatch.setattr("eidolon.mirror.Mirror", lambda: site.mirror())
+    monkeypatch.setattr("eidolon.embedding.open_embedder", lambda *_: _ClosableEmbedder())
+    return admin.invoke(
+        "story", "sync", "--story", str(story), "--cache", str(tmp_path / "mirror"),
+        "--characters", str(characters.path), *args,
+    )
+
+
+def episode_in(database: Path, episode_id: str) -> Episode | None:
+    """The episode as the corpus has it after a sync command."""
+
+    async def get() -> Episode | None:
+        db = Database(database)
+        try:
+            return await StoryCorpus(db, FakeEmbedder()).get(episode_id)
+        finally:
+            await db.close()
+
+    return aside(get())
+
+
+def test_with_a_fresh_game_catalog_the_cards_come_from_the_game_under_shinycolorsdbs_names(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    mirror_site: FakeShinyColorsDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    game = (
+        GameCatalogFile(tmp_path / "game.json")
+        .card(1, "1040010010", "【ほわっとスマイル】櫻木 真乃　", episodes=[(200100401, "ゲームでの題")])
+        .card(1, "1040010020", "【白いツバサ】櫻木 真乃", episodes=None)
+        .write()
+    )
+
+    code, out, err = sync_command(
+        admin, story, characters, mirror_site, tmp_path, monkeypatch, "--game-catalog", str(game)
+    )
+
+    assert code == 0, err
+    card = episode_in(tmp_path / "eidolon.db", "produce_events/200100401")
+    assert card is not None and (card.source, card.title) == ("【ほわっとスマイル】櫻木真乃", "ゲームでの題")
+    # ShinyColorsDB lists it on Mano's card, whose episodes the game has not been asked yet.
+    assert episode_in(tmp_path / "eidolon.db", "produce_events/200100402") is None
+    assert not [r for r in mirror_site.requests if r.url.path.startswith("/info/")]
+    assert "卡牌和衣装取自游戏目录" in out
+    assert "还有 1 张卡没查过剧情" in out
+
+
+def test_with_a_stale_game_catalog_the_cards_come_from_shinycolorsdb_and_events_still_take_its_names(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    events: FakeShinyColorsDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    game = (
+        GameCatalogFile(tmp_path / "game.json", fetched_at=datetime.now(UTC) - timedelta(days=4))
+        .card(1, "1040010010", "【ほわっとスマイル】櫻木 真乃", episodes=[(200100401, "ゲームでの題")])
+        .event(2, "ゲームでの名前", 2)
+        .event(5, "五番目のイベント", 2)
+        .write()
+    )
+    names = tmp_path / "event-names.toml"
+    names.write_text('[events]\n002 = "はじめてのイベント"\n', encoding="utf-8")
+
+    code, out, err = sync_command(
+        admin, story, characters, events, tmp_path, monkeypatch,
+        "--game-catalog", str(game), "--events", str(names),
+    )
+
+    assert code == 0, err
+    assert "游戏目录已经 4 天没更新" in err
+    database = tmp_path / "eidolon.db"
+    card = episode_in(database, "produce_events/200100401")
+    assert card is not None and (card.source, card.title) == (MANO_CARD, "ほわほわアイドル")
+    named, filled = episode_in(database, event(2, 1)), episode_in(database, event(5, 1))
+    assert named is not None and named.source == "はじめてのイベント"  # the table's, over the game's
+    assert filled is not None and filled.source == "五番目のイベント"
+    assert "暂用「活动剧情 NNN」：007" in out
+
+
+def test_an_unreadable_game_catalog_is_said_and_the_cards_come_from_shinycolorsdb(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    mirror_site: FakeShinyColorsDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    game = tmp_path / "game.json"
+    game.write_text('{"version": 1, "fetchedAt": "yesterday"}', encoding="utf-8")
+
+    code, out, err = sync_command(
+        admin, story, characters, mirror_site, tmp_path, monkeypatch, "--game-catalog", str(game)
+    )
+
+    assert code == 0, err
+    assert "游戏目录读不了" in err
+    assert "原文剧情：下载 4 个剧本，新增 4 段" in out
 
 
 class _ClosableEmbedder(FakeEmbedder):

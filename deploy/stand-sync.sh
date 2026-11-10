@@ -1,5 +1,6 @@
 #!/bin/sh
-# 同步立绘素材：从 ShinyColorsDB 为配了 idol_id 的角色拉取新卡（eidolon stand fetch，ADR-0011）、整理衣装清单
+# 同步立绘素材：为配了 idol_id 的角色拉取新卡（eidolon stand fetch，ADR-0011；存过游戏的登录态时卡牌和衣装的列表
+# 先用 npm run game:catalog 从游戏查，ADR-0034，没有时问 ShinyColorsDB）、整理衣装清单
 # （eidolon stand outfits）、渲染缩略图（frontend 的 npm run stand:thumbnails），再上传到 S3 兼容的存储桶
 # （eidolon stand upload）。适合每周用 cron 跑一次，没有新卡时几乎不花时间。
 # 在服务器或自己的电脑上运行都行，不经过 docker；步骤和要装的东西见
@@ -83,6 +84,17 @@ fi
 env_file=
 if [ -f .env ]; then
   env_file="--env-file=../.env"
+fi
+
+# 游戏目录（ADR-0034）：用 npm run game:login 存过登录态时，先从游戏查一遍卡牌和衣装，拉取从这里取；没存过时什么
+# 也不做。查不了（登录态失效、维护中）不影响同步：游戏目录 3 天没更新，拉取就退回 ShinyColorsDB。
+# 12 小时内查过的（剧情同步刚查过）不再查。
+if command -v npm >/dev/null && [ -d frontend/node_modules/playwright ]; then
+  npm --prefix frontend run --silent game:catalog -- --if-signed-in --if-older-than 12
+  catalog_code=$?
+  if [ "$catalog_code" != 0 ]; then
+    say "npm run game:catalog 以 $catalog_code 结束（2：登录态失效，要重新 npm run game:login；3：游戏或接口出错），照常同步"
+  fi
 fi
 
 say "eidolon stand fetch"

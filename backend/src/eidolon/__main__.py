@@ -104,6 +104,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from eidolon.clock import utc_now
 from eidolon.config import (
@@ -120,6 +121,9 @@ from eidolon.data_access import Database
 from eidolon.identity import PROVIDER_LABELS
 from eidolon.store import NotFound, Store
 from eidolon.usage import Tally, UsageLimiter
+
+if TYPE_CHECKING:
+    from eidolon.game_catalog import GameCatalog
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -353,6 +357,10 @@ async def _sync_story(args: argparse.Namespace) -> int:
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1
+    game = _game_catalog(args.game_catalog)
+    if game is not None:  # names do not go stale: the table's win
+        event_names = {**game.event_names(), **event_names}
+    catalog = game if game is not None and game.is_fresh() else None
 
     progress = logging.StreamHandler()  # the first sync takes an hour or two
     progress.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
@@ -370,6 +378,7 @@ async def _sync_story(args: argparse.Namespace) -> int:
                 StoryCorpus(db, embedder),
                 characters.values(),
                 mirror,
+                catalog=catalog,
                 event_names=event_names,
                 idols=args.idol,
             )
@@ -383,6 +392,7 @@ async def _sync_story(args: argparse.Namespace) -> int:
         await embedder.aclose()
     for warning in [*report.translated.warnings, *report.untranslated.warnings]:
         print(f"注意：{warning}", file=sys.stderr)
+    _print_card_source(catalog)
     translated, untranslated = report.translated, report.untranslated
     print(
         f"汉化版：新增 {translated.added} 段，更新 {translated.imported - translated.added} 段"
@@ -449,11 +459,15 @@ async def _stand_fetch(args: argparse.Namespace) -> int:
         logging.getLogger(name).addHandler(progress)
         logging.getLogger(name).setLevel(logging.INFO)
     mirror = Mirror()
+    game = _game_catalog(args.game_catalog)
+    catalog = game if game is not None and game.is_fresh() else None
     try:
         characters = load_characters(
             args.characters or characters_path_from_env(), require_sheets=False
         )
-        report = await fetch_stands(args.build or stand_build_path_from_env(), characters.values(), mirror)
+        report = await fetch_stands(
+            args.build or stand_build_path_from_env(), characters.values(), mirror, catalog
+        )
     except (RuntimeError, OSError) as e:  # SourceLayoutError, a broken character configuration
         print(e, file=sys.stderr)
         return 1
@@ -461,14 +475,46 @@ async def _stand_fetch(args: argparse.Namespace) -> int:
         await mirror.aclose()
     for skipped in report.skipped:
         print(f"注意：{skipped}", file=sys.stderr)
+    _print_card_source(catalog)
     print(f"拉取了 {len(report.fetched)} 套新衣装（{report.fetched_bytes / 1_000_000:.1f} MB）")
     if report.error:
+        source = "镜像和官方 CDN" if catalog is not None else "ShinyColorsDB"
         print(
-            f"没能从 ShinyColorsDB 拉取完新卡（已拉取的都保留，下次同步再拉剩下的）：{report.error}",
+            f"没能从 {source} 拉取完新卡（已拉取的都保留，下次同步再拉剩下的）：{report.error}",
             file=sys.stderr,
         )
         return 2
     return 0
+
+
+def _game_catalog(path: Path | None) -> "GameCatalog | None":
+    """What `npm run game:catalog` saved at `path` (by default `EIDOLON_GAME_CATALOG_PATH`),
+    if anything; one that cannot be read, or has not been saved again for a while (a
+    lapsed login), is said so on stderr: the sync falls back on ShinyColorsDB."""
+    from eidolon.config import game_catalog_path_from_env
+    from eidolon.game_catalog import FRESH_FOR, GameCatalog, GameCatalogError
+
+    try:
+        game = GameCatalog.load(path or game_catalog_path_from_env())
+    except GameCatalogError as e:
+        print(f"注意：游戏目录读不了，这次改用 ShinyColorsDB：{e}", file=sys.stderr)
+        return None
+    if game is not None and not game.is_fresh():
+        print(
+            f"注意：游戏目录已经 {game.age().days} 天没更新（超过 {FRESH_FOR.days} 天），这次改用 ShinyColorsDB；"
+            "多半是登录态失效了，看 npm run game:catalog 的输出，需要时重新 npm run game:login",
+            file=sys.stderr,
+        )
+    return game
+
+
+def _print_card_source(catalog: "GameCatalog | None") -> None:
+    if catalog is None:
+        return
+    hours = catalog.age().total_seconds() / 3600
+    print(f"卡牌和衣装取自游戏目录（{hours:.0f} 小时前保存）")
+    if pending := catalog.cards_pending:
+        print(f"游戏目录里还有 {pending} 张卡没查过剧情，先跳过，之后每次 game:catalog 接着查")
 
 
 def _stand_outfits(args: argparse.Namespace) -> int:
@@ -1210,6 +1256,12 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="活动名对照表（默认取环境变量 EIDOLON_EVENT_NAMES_PATH；默认的文件不存在时活动用占位名）",
     )
+    sync.add_argument(
+        "--game-catalog",
+        type=Path,
+        help="npm run game:catalog 保存的游戏目录（默认取环境变量 EIDOLON_GAME_CATALOG_PATH，没有时是 "
+        "../corpus/game/catalog.json）；3 天内更新过时卡牌和剧情标题取自它，活动名对照表没写的活动也用它的名字",
+    )
     for command in (import_csv, import_json, sync):
         command.add_argument(
             "--characters",
@@ -1267,6 +1319,12 @@ def _parser() -> argparse.ArgumentParser:
     outfits = stand.add_parser(
         "outfits",
         help="从拉取到的立绘为配了 idol_id 的角色生成衣装清单，写进整理目录的 outfits/<idol_id>.json（可重复执行）",
+    )
+    fetch.add_argument(
+        "--game-catalog",
+        type=Path,
+        help="npm run game:catalog 保存的游戏目录（默认取环境变量 EIDOLON_GAME_CATALOG_PATH，没有时是 "
+        "../corpus/game/catalog.json）；3 天内更新过时衣装列表取自它，而不是 ShinyColorsDB",
     )
     for command in (fetch, outfits):
         command.add_argument(

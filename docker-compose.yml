@@ -2,6 +2,9 @@ services:
   backend:
     build: ./backend
     env_file: .env
+    environment:
+      # npm run game:catalog 在主机上写进 corpus/game/；.env 里给主机设的路径到容器里不对
+      EIDOLON_GAME_CATALOG_PATH: /corpus/game/catalog.json
     volumes:
       - eidolon-data:/data
       - ./characters:/characters:ro

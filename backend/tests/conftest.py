@@ -332,7 +332,11 @@ def settings(tmp_path: Path, characters: CharacterConfig) -> Settings:
 
 
 @pytest.fixture
-def admin(settings: Settings, capsys: pytest.CaptureFixture[str]) -> Admin:
+def admin(
+    settings: Settings, capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Admin:
+    # Not the game catalog a `game:catalog` run may have left in this checkout's corpus.
+    monkeypatch.setenv("EIDOLON_GAME_CATALOG_PATH", str(tmp_path / "game" / "catalog.json"))
     return Admin(settings.database_path, capsys)
 
 

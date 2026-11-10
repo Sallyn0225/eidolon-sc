@@ -11,7 +11,7 @@ import pytest
 
 from eidolon.mirror import Mirror
 from tests.conftest import Admin, CharacterConfig
-from tests.fakes import FakeEnzaAssets
+from tests.fakes import FakeEnzaAssets, GameCatalogFile
 
 MANO = "櫻木真乃"
 PNG = b"\x89PNG\r\n\x1a\n texture"
@@ -48,14 +48,19 @@ class FakeShinyColorsDB:
             assets.append({"path": "" if category in without_path else path, "type": category})
             if category in without_path or category in without_files:
                 continue
-            self.files[f"{path}data.json"] = b'{"skeleton": {"spine": "3.6.53"}}'
-            self.files[f"{path}data.atlas"] = b"\ndata.png\nsize: 2048,2048\n"
-            self.files[f"{path}data.png"] = texture + f" {category} {enza_id}".encode()
+            self.outfit(category, enza_id, texture)
         self.dresses.setdefault(idol_id, []).append({
             "exist": True, "assets": {"idols": assets}, "idolId": idol_id, "dressName": dress_name,
             "dressType": dress_type, "enzaId": enza_id,
         })
         return self
+
+    def outfit(self, category: str, enza_id: str, texture: bytes = PNG) -> None:
+        """The CDN has the stand's files, whether or not the API lists it."""
+        path = f"spine/idols/{category}/{enza_id}/"
+        self.files[f"{path}data.json"] = b'{"skeleton": {"spine": "3.6.53"}}'
+        self.files[f"{path}data.atlas"] = b"\ndata.png\nsize: 2048,2048\n"
+        self.files[f"{path}data.png"] = texture + f" {category} {enza_id}".encode()
 
     def withdraw(self, idol_id: int, enza_id: str) -> None:
         self.dresses[idol_id] = [d for d in self.dresses[idol_id] if d["enzaId"] != enza_id]
@@ -96,8 +101,13 @@ class Stands:
     def _args(self, action: str) -> list[str]:
         return ["stand", action, "--build", str(self.build), "--characters", str(self._characters.path)]
 
-    def fetch(self) -> tuple[int, str, str]:
-        return self._admin.invoke(*self._args("fetch"))
+    def fetch(self, *args: str) -> tuple[int, str, str]:
+        return self._admin.invoke(*self._args("fetch"), *args)
+
+    def manifest(self) -> dict[str, tuple[str, str]]:
+        """Each outfit the source's manifest lists, with its name and kind."""
+        entries = json.loads((self.build / "source" / "spine_manifest.json").read_text(encoding="utf-8"))
+        return {f"{e['category']}/{e['enzaId']}": (e["dressName"], e["dressType"]) for e in entries}
 
     def outfits(self) -> list[str]:
         """The outfits Mano's outfit list names, after `eidolon stand outfits`."""
@@ -314,6 +324,48 @@ def test_a_source_seeded_from_an_old_mirror_is_kept_and_added_to(
     assert not any("1030010010" in url for url in site.requests if "cf-static" in url)
     assert stands.file("stand/1030010010", "data.png").read_bytes() == PNG
     assert stands.outfits() == ["stand/1030010010", "stand/1030010020"]
+
+
+def test_with_a_fresh_game_catalog_its_cards_and_costumes_with_stands_are_fetched(
+    stands: Stands, site: FakeShinyColorsDB, tmp_path: Path
+):
+    # Fetched from ShinyColorsDB before: a swimsuit of the series the game numbers 1.
+    site.card(1, "3000010010", f"【シャイニーサマー】{MANO}", "Mizugi", categories=("stand_costume",))
+    stands.fetch()
+    for category, enza_id in (
+        ("stand", "1040010010"), ("stand_costume", "1040010010"), ("stand_costume", "3000010020"), ("stand", "3000010030"),
+    ):
+        site.outfit(category, enza_id)
+    game = (
+        GameCatalogFile(tmp_path / "game.json")
+        .card(1, "1040010010", "【ほわっとスマイル】櫻木 真乃")
+        .costume(1, "3000010010", "【シャイニーサマー（水着）】櫻木 真乃", group="1")
+        .costume(1, "3000010020", "【シャイニーサマー2】櫻木 真乃", group="1")
+        .costume(1, "3000010030", "【はじめての衣装】櫻木 真乃", group="99")
+        .costume(4, "3000040010", "【シャイニーサマー】月岡 恋鐘", group="1")  # Kogane has no idol
+        .stand("1040010010", "stand", "stand_costume")
+        .stand("3000010010", "stand_costume")
+        .stand("3000010020", "stand_costume")
+        .stand("3000010030", "stand")
+        .stand("3000040010", "stand")
+        .write()
+    )
+    site.requests.clear()
+
+    code, out, err = stands.fetch("--game-catalog", str(game))
+
+    assert code == 0, err
+    assert stands.manifest() == {
+        "stand_costume/3000010010": (f"【シャイニーサマー】{MANO}", "Mizugi"),  # as it was
+        "stand/1040010010": (f"【ほわっとスマイル】{MANO}", "P_SSR"),
+        "stand_costume/1040010010": (f"【ほわっとスマイル】{MANO}", "P_SSR"),
+        "stand_costume/3000010020": (f"【シャイニーサマー2】{MANO}", "Mizugi"),  # its series'
+        "stand/3000010030": (f"【はじめての衣装】{MANO}", "Special"),
+    }
+    assert not [url for url in site.requests if "dresslist" in url]
+    # Only the stands the game's asset server has are asked for.
+    assert not [url for url in site.requests if "stand/3000010020" in url or "costume/3000010030" in url]
+    assert "卡牌和衣装取自游戏目录" in out
 
 
 def test_when_nothing_was_ever_fetched_and_shinycolorsdb_cannot_be_reached_there_is_nothing_to_list(

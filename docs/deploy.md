@@ -141,6 +141,55 @@ docker compose -f docker-compose.prod.yml exec backend eidolon story import-json
 
 导入的结果存在数据库里。只手动导入时，之后可以删掉 `corpus/` 节省空间；用每周同步时要保留 `corpus/SCTranslationData`，脚本每次只 `git pull` 增量更新。
 
+## 游戏目录（可选）
+
+剧情同步和立绘同步要先知道有哪些卡、每张卡有哪些剧情、叫什么、有哪些衣装。默认问 ShinyColorsDB 的 API；存了一个游戏账号的登录态后，改从游戏自己那里查（[ADR-0034](adr/0034-card-catalog-from-the-logged-in-game.md)）：ShinyColorsDB 停了也能接着同步新卡，名字和标题都是游戏里的，活动名对照表没写的活动也有名字。剧本和立绘文件照旧先从镜像拉、再从官方资源服务器拉。
+
+`frontend/` 的 `npm run game:catalog` 用存下的登录态，在无界面的 Chromium 里打开游戏、进到 HOME，借游戏自己的接口只读地查一遍，写进 `corpus/game/catalog.json`。一次大约 1 分半钟，只发 GET，一个接一个、间隔至少 1 秒。配好以后 `deploy/story-sync.sh` 和 `deploy/stand-sync.sh` 同步前会自动运行它（12 小时内查过的不再查）；同步时目录 3 天内更新过就用它，否则照旧问 ShinyColorsDB。
+
+**用一个不拿来玩的账号。** 自动登录可能违反 enza 的利用规约，有被封号的风险；而且一个账号同一时间只能在一处登录，这里一登录，你手机或电脑上的游戏就会掉线。
+
+### 第一次登录
+
+在有桌面的电脑上（服务器没有显示器，打不开登录窗口），仓库根目录下：
+
+```sh
+cd frontend
+npm ci
+npx playwright install chromium
+npm run game:login
+```
+
+会打开一个浏览器窗口：在里面登录游戏，点开始进到 HOME，登录态就会自动存进仓库根目录的 `game-login.json`（可用 `EIDOLON_GAME_LOGIN_PATH` 改位置）。这个文件就是账号的登录凭据，已被 git 忽略，不要发给别人。把它拷到服务器上仓库的根目录：
+
+```sh
+scp game-login.json you@server:/home/you/eidolon-sc/
+```
+
+服务器上要有 Node.js、frontend 的依赖和 Playwright 的 Chromium（同步立绘本来就要，见「立绘素材」）。先手动运行一次，看看能不能查到：
+
+```sh
+cd frontend && npm run game:catalog
+# 游戏目录：28 位偶像，1107 张卡（还有 1067 张没查剧情，下次接着查），1450 套衣装，97 个活动，……
+```
+
+卡的剧情要一张一张查，每次最多查 40 张，新卡优先，其余的之后每周接着查。已经从 ShinyColorsDB 同步过的剧情不受影响；要是新部署时 ShinyColorsDB 已经停了，可以一次查完：`npm run game:catalog -- --max-cards 2000`（约半小时）。
+
+### 日志和退出码
+
+同步脚本把 `game:catalog` 的输出写进各自的日志。剧情同步和立绘拉取的报告里，用了游戏目录时有一行「卡牌和衣装取自游戏目录（N 小时前保存）」；没用上时 stderr 里会说原因，例如「游戏目录已经 4 天没更新……这次改用 ShinyColorsDB」。
+
+| 退出码 | 含义 | 要做什么 |
+|---|---|---|
+| 0 | 查到了，或者目录 12 小时内刚更新过（同步脚本调用时），或者没存过登录态（同步脚本调用时什么也不做） | 不用管 |
+| 1 | 没有登录态、参数不对，或者打不开 Chromium | 按提示补上；Chromium 用 `npx playwright install --with-deps chromium` 装 |
+| 2 | 登录态失效了（被带到了登录页） | 在有桌面的电脑上重新 `npm run game:login`，再拷过来 |
+| 3 | 游戏或接口出错：维护中、游戏改版后认不出接口模块、接口没有回应；旧的目录原样保留 | 维护时不用管；连续几周都是 3，多半是游戏改版了，要改 `frontend/scripts/game-catalog.mts` |
+
+`game:catalog` 出错不影响同步：同步照常进行，目录 3 天没更新就退回 ShinyColorsDB。
+
+P デスク里只有 28 位偶像，所以はづき的 S 卡和联动卡不在游戏目录里：以前的这些剧情已经在库里，以后新出的はづき S 卡剧情只有 ShinyColorsDB 还在时才进得来。她的衣装不受影响。
+
 ## 更换向量化服务、模型或维度
 
 库里只保留当前模型的向量，换了之后要用库里的原文重新向量化一遍（不需要重新下载或导入剧情）：

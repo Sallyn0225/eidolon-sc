@@ -2,7 +2,8 @@
 
 A sync imports SCTranslationData's translated episodes first, then fills in what they
 lack from the ShinyColorsDB mirror (ADR-0004) as untranslated episodes, under the
-card's real name and the episode's title as the mirror's API gives them. The import
+card's real name and the episode's title as the mirror's API gives them, or as the
+game itself lists them (`game_catalog`, ADR-0034) when the caller has that. The import
 rules are the usual ones (`story_import`): failure endings are left out, a translated
 episode is never replaced by an untranslated one, and a translation that arrives
 later replaces the untranslated episode under the same card, since SCTranslationData
@@ -62,10 +63,11 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from eidolon.characters import Character
 from eidolon.corpus import CatalogEntry, StoryCorpus
-from eidolon.mirror import ALBUM_IDOLS, AlbumEpisode, CardEpisode, Mirror, MirrorError
+from eidolon.mirror import ALBUM_IDOLS, AlbumEpisode, Card, CardEpisode, Mirror, MirrorError
 from eidolon.script_cache import Fetched, ScriptCache
 from eidolon.story_import import (
     ImportReport,
@@ -88,6 +90,17 @@ PROBE_AHEAD = 3
 """How many event numbers after the latest known are tried, in case some are skipped."""
 _EPISODES_AT_MOST = 99
 """Two digits of episode; events have about eight."""
+
+
+class CardCatalog(Protocol):
+    """Which idols there are, their cards and each card's episodes: ShinyColorsDB's API
+    (`Mirror`), or the game's own listing (`GameCatalog`)."""
+
+    async def idols(self) -> list[int]: ...
+
+    async def cards(self, idol_id: int) -> list[Card]: ...
+
+    async def episodes(self, card: Card) -> list[CardEpisode]: ...
 
 
 class EventNamesError(RuntimeError):
@@ -248,11 +261,13 @@ async def sync_stories(
     characters: Iterable[Character],
     mirror: Mirror,
     *,
+    catalog: CardCatalog | None = None,
     event_names: Mapping[int, str] | None = None,
     idols: Sequence[int] | None = None,
 ) -> SyncReport:
     """Import SCTranslationData's CSVs from `story_directory`, then the mirror's card,
-    album and event episodes the corpus lacks, events named from `event_names`. `idols`
+    album and event episodes the corpus lacks, events named from `event_names`. The
+    cards and their episodes are `catalog`'s, the mirror's API's by default. `idols`
     limits the mirror to those idols' cards and albums, and leaves events out."""
     characters = list(characters)
     report = SyncReport(await import_csv_directory(story_directory, corpus, characters))
@@ -260,7 +275,7 @@ async def sync_stories(
     scripts = ScriptCache(cache_directory / _SCRIPTS_DIR, mirror, corpus)
     errors = []
     try:
-        await _fetch_cards(mirror, scripts, cache, report, idols)
+        await _fetch_cards(catalog or mirror, scripts, cache, report, idols)
     except MirrorError as e:
         errors.append(str(e))
     try:  # the albums are elsewhere
@@ -290,15 +305,15 @@ async def sync_stories(
 
 
 async def _fetch_cards(
-    mirror: Mirror,
+    catalog: CardCatalog,
     scripts: ScriptCache,
     cache: _Cache,
     report: SyncReport,
     idols: Sequence[int] | None,
 ) -> None:
     seen: set[str] = set()  # a unit's card is listed under each of its idols
-    for idol in idols if idols is not None else await mirror.idols():
-        for card in await mirror.cards(idol):
+    for idol in idols if idols is not None else await catalog.idols():
+        for card in await catalog.cards(idol):
             if card.uuid in seen:
                 continue
             seen.add(card.uuid)
@@ -309,7 +324,7 @@ async def _fetch_cards(
                 for episode in known.episodes:
                     _count_card_script(await scripts.fetch(episode.script), episode, report)
                 continue
-            episodes = await mirror.episodes(card)
+            episodes = await catalog.episodes(card)
             # Its episodes are known now, so that what is downloaded is imported even if the
             # mirror fails before the card is done; until it is, it still counts as changed.
             unfinished = known.version if known is not None else ""

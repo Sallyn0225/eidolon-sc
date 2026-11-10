@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 .claude/settings.local.json
+# 游戏账号的登录态（npm run game:login，ADR-0034）
+/game-login.json
+/game-login.json.part
 
 # impeccable 的平台二进制按需下载（启动脚本会自动取对应平台的版本）；.claude/skills/ 下的技能都是指向 .agents/skills/ 的链接
 .agents/skills/impeccable/scripts/bin/

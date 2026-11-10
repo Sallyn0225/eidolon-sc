@@ -20,6 +20,10 @@ reached, or answers unlike it used to, what was fetched until then is kept and l
 A file the CDN lacks is asked of the game's asset server (`Mirror.stand_file`), so is an
 outfit the API lists without a place: the server keeps every outfit where the CDN would,
 `spine/idols/{category}/{enza_id}/`.
+
+Given the game's own listing (`game_catalog`, ADR-0034), the dresses are its instead of
+the API's: every card and costume with a stand on the game's asset server, under the
+name and kind the manifest already gives it, if it has one.
 """
 
 import logging
@@ -28,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from eidolon.characters import Character
+from eidolon.game_catalog import GameCatalog
 from eidolon.mirror import Dress, Mirror, MirrorError
 from eidolon.stand_outfits import (
     CATEGORIES,
@@ -56,16 +61,30 @@ class FetchReport:
     """Why ShinyColorsDB could not be asked for the rest, if it could not."""
 
 
-async def fetch_stands(build: Path, characters: Iterable[Character], mirror: Mirror) -> FetchReport:
+async def fetch_stands(
+    build: Path, characters: Iterable[Character], mirror: Mirror, game: GameCatalog | None = None
+) -> FetchReport:
+    """Fetch the stands of each character's dresses that the source lacks: the dresses
+    `game` lists, if given, or else those ShinyColorsDB's API does."""
     source = source_directory(build)
     manifest = read_manifest(source)
     entries = {entry.get("path"): entry for entry in manifest or []}
+    known = {
+        str(entry["enzaId"]): (str(entry.get("dressName", "")), str(entry.get("dressType", "")))
+        for entry in manifest or []
+        if entry.get("enzaId")
+    }
     report = FetchReport()
     try:
         for character in characters:
             if character.idol_id is None:
                 continue
-            for dress in await mirror.dresses(character.idol_id):
+            dresses = (
+                game.dresses(character.idol_id, known)
+                if game is not None
+                else await mirror.dresses(character.idol_id)
+            )
+            for dress in dresses:
                 for category in CATEGORIES:
                     if category not in dress.stands:
                         continue
