@@ -143,7 +143,7 @@ class _Script:
 async def import_csv_directory(
     directory: Path, corpus: StoryCorpus, characters: Iterable[Character]
 ) -> ImportReport:
-    """Import every `*.csv` under `directory` as an episode.
+    """Import every `*.csv` (in any case) under `directory` as an episode.
 
     Of several files translated from the same script, the one with the most lines wins
     (stray partial copies exist), then the first in path order.
@@ -175,7 +175,10 @@ async def import_script_files(
 
 
 def _csv_scripts(directory: Path, report: ImportReport) -> Iterator[_Script]:
-    for path in sorted(directory.rglob("*.csv")):
+    # Any case: SCTranslationData has a `.CSV`, which `*.csv` misses where paths are
+    # case-sensitive.
+    paths = (p for p in directory.rglob("*") if p.suffix.lower() == ".csv" and p.is_file())
+    for path in sorted(paths):
         relative = path.relative_to(directory)
         try:
             source_id, lines = _read_csv(path)

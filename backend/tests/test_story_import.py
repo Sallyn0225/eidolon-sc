@@ -237,6 +237,18 @@ async def test_a_file_without_an_info_row_is_keyed_by_its_path(importer: Importe
     assert any("info" in w for w in report.warnings)
 
 
+async def test_a_file_with_an_upper_case_extension_is_imported(importer: Importer, tmp_path: Path):
+    # SCTranslationData has one; matching `*.csv` found it on Windows but not on Linux.
+    root = tmp_path / "story"
+    write_story(root, "櫻木真乃/W.I.N.G.編/公園の歌声.CSV", PARK, "produce_events/100100101")
+
+    await importer.run(root)
+
+    park = await importer.corpus.get("produce_events/100100101")
+    assert park is not None
+    assert (park.title, park.cast) == ("公園の歌声", {"mano"})
+
+
 @pytest.mark.parametrize("command", ["import-csv", "import-json"])
 def test_import_commands_need_the_siliconflow_key(
     admin: Admin,
