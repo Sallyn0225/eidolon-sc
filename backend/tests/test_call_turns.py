@@ -381,7 +381,7 @@ async def test_each_segment_of_each_reply_goes_to_tts_under_its_numbers(
 ):
     llm = FakeLLM(MANO_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"])
 
-    down = await mano_call.run_frames(llm, [spoken("早上好"), SleepFrame(0.5), spoken("在吗")])
+    down = await mano_call.run_frames(llm, one_by_one(spoken("早上好"), spoken("在吗")))
 
     assert to_tts(down) == [
         ("reply",),

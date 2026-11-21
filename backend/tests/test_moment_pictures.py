@@ -463,8 +463,8 @@ async def test_only_the_user_whose_moment_it_is_reads_its_picture(
 ):
     image = FakeImageService()
     client, _ = await posted(make_client, image, pictured(STREET))
-    friend = make_client(FakeLLM(), user="friend")
-    signed_out = make_client(FakeLLM(), user=None)
+    friend = make_client(FakeLLM(), user="friend", clock=FakeClock(SEVEN))
+    signed_out = make_client(FakeLLM(), user=None, clock=FakeClock(SEVEN))
 
     [moment] = await timeline(client)
     path = moment["image"]
