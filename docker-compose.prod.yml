@@ -79,7 +79,7 @@ services:
       start_period: 60s
 
   coturn:
-    image: coturn/coturn:4.7
+    image: coturn/coturn:4.19
     network_mode: host
     # 直接运行 turnserver：镜像自带的入口脚本会对每个参数做一次 shell 求值
     entrypoint: ["turnserver"]
@@ -99,9 +99,7 @@ services:
       - --allowed-peer-ip=${EIDOLON_PRIVATE_IP:-${EIDOLON_PUBLIC_IP}}
       # 公网地址不在网卡上（1:1 NAT 的云主机）时，告诉浏览器公网地址，本机用内网地址收发
       - --external-ip=${EIDOLON_PUBLIC_IP:?请在 .env 里填写 EIDOLON_PUBLIC_IP}/${EIDOLON_PRIVATE_IP:-${EIDOLON_PUBLIC_IP}}
-      - --no-cli
       - --no-tls
-      - --no-dtls
       - --log-file=stdout
       - --simple-log
     restart: unless-stopped
