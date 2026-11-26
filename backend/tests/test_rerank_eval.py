@@ -257,10 +257,12 @@ relevant = ["cat"]
     assert cat.case.previous is None
 
 
-async def test_a_reference_question_after_a_reply_is_asked_as_a_turn_would(world, work):
+async def test_a_reference_question_after_a_reply_is_asked_as_a_turn_would(
+    world, work, monkeypatch: pytest.MonkeyPatch
+):
     """A story, character-fact or work-fact question may say what the character replied
     just before, which a turn looks references up with too; one that does not is asked
-    alone."""
+    alone, while FTS5 receives the reply context only on short follow-ups."""
     characters, calibration, _ = world
     data, sources = work
     await sources.corpus.save([PARK, FINAL])
@@ -289,12 +291,30 @@ kind = "work"
 previous = "ヒカリのdestination、いい曲ですよね"
 query = "那是谁唱的？"
 relevant = ["{HIKARI}"]
+
+[[cases]]
+id = "park-topic-change"
+character = "mano"
+kind = "story"
+previous = "ピーちゃんのこと？"
+query = "公園で鳩と歌ったの覚えてる？"
+relevant = ["produce_events/100100101"]
 """,
         encoding="utf-8",
     )
     reranker = RecordingReranker({"鳩": 0.9, HIKARI: 0.8})
+    fts_queries: list[str | None] = []
+    original_rank = sources.rank
 
-    park, _, _, hikari, tired, pronoun, who = await evaluate(
+    async def recording_rank(
+        ranker, character, text: str, fts_text: str | None = None
+    ):
+        fts_queries.append(fts_text)
+        return await original_rank(ranker, character, text, fts_text=fts_text)
+
+    monkeypatch.setattr(sources, "rank", recording_rank)
+
+    park, _, _, hikari, tired, pronoun, who, _topic_change = await evaluate(
         load_calibration(calibration, data), characters, reranker, sources
     )
 
@@ -302,12 +322,21 @@ relevant = ["{HIKARI}"]
         "是和鸽子一起在公园唱歌的那天吧\n那时候累吗？",
         "ピーちゃんのこと？\n它会说话吗？",
         "ヒカリのdestination、いい曲ですよね\n那是谁唱的？",
+        "ピーちゃんのこと？\n公園で鳩と歌ったの覚えてる？",
     ]
-    assert reranker.queries[-3:] == asked
-    assert sources.embedder.queries[-3:] == asked
+    assert reranker.queries[-4:] == asked
+    assert sources.embedder.queries[-4:] == asked
+    assert fts_queries[-4:] == [
+        "是和鸽子一起在公园唱歌的那天吧\n那时候累吗？",
+        "ピーちゃんのこと？\n它会说话吗？",
+        "ヒカリのdestination、いい曲ですよね\n那是谁唱的？",
+        "公園で鳩と歌ったの覚えてる？",
+    ]
     # Without a reply, as before.
     assert reranker.queries[0] == park.case.query
-    assert reranker.queries[-4] == hikari.case.query
+    assert reranker.queries[-5] == hikari.case.query
+    assert fts_queries[0] == park.case.query
+    assert fts_queries[-5] == hikari.case.query
     assert ("produce_events/100100101", 0.9, "relevant") in [
         (s.label, s.score, s.verdict) for s in tired.scored
     ]

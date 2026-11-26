@@ -4,7 +4,8 @@ reference source.
 They come from the world setting's data file (`World.entries`), not an import: they are
 the work's scope of the embedded text set, embedded the first time they are searched and
 kept until an entry is edited or removed, so a new data file takes effect after a restart
-without any command and costs only the changed entries.
+without any command and costs only the changed entries. An in-memory FTS5 index is built
+on demand for hybrid search and embedding fallback.
 
 As a reference source they are searched whatever they are about; recalling how something
 went searches them itself (`search_entries`), for the lives and releases only.
@@ -23,9 +24,10 @@ from eidolon.references import (
     HYBRID_CANDIDATE_MULTIPLIER,
     Reference,
     ReferenceKind,
+    fuse_hybrid,
     search_hybrid_references,
 )
-from eidolon.text_search import RRF_K, MemoryFtsIndex, fts_query, rrf_fuse, titled_text
+from eidolon.text_search import MemoryFtsIndex, fts_query, titled_text
 from eidolon.world import EntryKind, World, WorldEntry
 
 log = logging.getLogger(__name__)
@@ -119,8 +121,8 @@ class WorkFacts:
                 fts_entries = [e for e, _ in await fts_task]
                 return fts_entries[:limit]
             fts_entries = [e for e, _ in await fts_task]
-            fused = rrf_fuse([vec_entries, fts_entries], key=lambda e: e.text, k=RRF_K)
-            return [e for e, _ in fused[:limit]]
+            fused = fuse_hybrid(vec_entries, fts_entries, limit, key=lambda e: e.text)
+            return [e for e, _ in fused]
         finally:
             if not fts_task.done():
                 fts_task.cancel()

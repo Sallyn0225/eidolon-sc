@@ -287,6 +287,10 @@ async def test_fts_search_filters_by_cast_and_stays_in_sync_on_replace_and_remov
     assert [p.episode_id for p in await corpus.search_by_text("公園 写真", "hiori", limit=1)] == [
         HIORI.id
     ]
+    # BM25 scores are strictly positive and rank repeated term matches ahead of fewer matches.
+    mano_park_hits = await corpus.search_by_text("公園 写真", "mano", limit=5)
+    assert [p.episode_id for p in mano_park_hits[:2]] == [mano_park_a.id, mano_park_b.id]
+    assert all(p.score > 0.0 for p in mano_park_hits)
     assert [p.episode_id for p in await corpus.search_by_text("猫カフェ", "mano", limit=5)] == [
         old_model_ep.id
     ]
@@ -319,9 +323,9 @@ async def test_opening_a_legacy_corpus_without_fts_backfills_and_searches_immedi
 
     with caplog.at_level(logging.INFO, logger="eidolon.corpus"):
         async with corpus_in(database, FakeEmbedder()) as reopened:
-            assert [p.episode_id for p in await reopened.search_by_text("歌って", "mano", limit=5)] == [
-                PARK.id
-            ]
+            hits = await reopened.search_by_text("歌って", "mano", limit=5)
+            assert [p.episode_id for p in hits] == [PARK.id]
+            assert hits[0].score > 0.0
 
     backfill_logs = [
         r.getMessage() for r in caplog.records
@@ -337,5 +341,18 @@ async def test_opening_a_legacy_corpus_without_fts_backfills_and_searches_immedi
                 p.episode_id for p in await reopened_again.search_by_text("ちゃんぽん", "kogane", limit=5)
             ] == [NAGASAKI.id]
     assert not any("FTS5" in r.getMessage() for r in caplog.records)
+
+    # A legacy detail='column' FTS5 table (whose bm25() returns 0.0) is rebuilt automatically.
+    with sqlite3.connect(database) as raw:
+        raw.execute("DROP TABLE episode_passages_fts")
+        raw.execute(
+            "CREATE VIRTUAL TABLE episode_passages_fts USING fts5("
+            "tokens, content='', contentless_delete=1, tokenize='unicode61', detail='column')"
+        )
+    raw.close()
+    async with corpus_in(database, FakeEmbedder()) as upgraded:
+        upgraded_hits = await upgraded.search_by_text("歌って", "mano", limit=5)
+        assert [p.episode_id for p in upgraded_hits] == [PARK.id]
+        assert upgraded_hits[0].score > 0.0
 
 

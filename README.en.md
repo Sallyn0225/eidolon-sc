@@ -264,7 +264,7 @@ npm run build && BACKEND_URL=http://localhost:8000 npm run start   # serves on :
 eidolon-sc/
 ├── backend/          # Python backend: FastAPI + Pipecat; conversation engine, calls, retrieval, memory, sync and the CLI (eidolon)
 │   ├── src/eidolon/
-│   ├── eval/         #   eval sets for reranking, the judge and memory (questions and labels only, no story text)
+│   ├── eval/         #   eval sets for retrieval, reranking, the judge and memory (questions and labels only, no story text)
 │   └── tests/
 ├── frontend/         # Next.js frontend: landing page, conversations, call screen, settings, admin console
 ├── characters/       # character config, character sheets, character facts, avatars, readings table, world setting

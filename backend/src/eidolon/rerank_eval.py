@@ -2,16 +2,17 @@
 set of questions committed with the code (`eval/rerank-calibration.toml`).
 
 Each question is run as a turn would: story, character-fact and work-fact questions
-through the same reference sources, candidates and reranking as retrieval
+through the same hybrid reference sources, candidates and reranking as retrieval
 (`ReferenceSources.rank`: the story, the character's facts and the work facts reranked
-together), memory questions through the nearest of the set's sample memories, which are
-embedded for the run and never stored. Any question is asked after the character's reply
-before it when it gives one, as a turn looks references and memories up (`memory.memory_query`).
-Each candidate the reranker scores is labelled
-relevant, acceptable (either way is fine, so left out of the counts) or irrelevant; an
-episode scores as its best passage. The report sets the scores of the relevant against
-those of the irrelevant, for the references (under their threshold) and the memories
-(under theirs), and counts what a threshold would let in. A relevant candidate the vector search never offered is listed
+together, with FTS5 using `retrieval.fts_query_for_reply`), memory questions through the
+nearest of the set's sample memories, which are embedded for the run and never stored.
+Any question is asked after the character's reply before it when it gives one, as a turn
+looks references and memories up (`memory.memory_query`, while FTS5 drops the reply on
+non-short queries). Each candidate the reranker scores is labelled relevant, acceptable
+(either way is fine, so left out of the counts) or irrelevant; an episode scores as its
+best passage. The report sets the scores of the relevant against those of the irrelevant,
+for the references (under their threshold) and the memories (under theirs), and counts
+what a threshold would let in. A relevant candidate retrieval never offered is listed
 apart: that is a recall problem no threshold fixes.
 
 The set holds questions, episode identifiers, fact and work-fact titles and labels, never
@@ -30,7 +31,7 @@ from eidolon.characters import Character
 from eidolon.embedding import Document, nearest, to_blob
 from eidolon.memory import CANDIDATES, joined_query
 from eidolon.rerank import Reranker, RerankThresholds
-from eidolon.retrieval import ReferenceSources
+from eidolon.retrieval import ReferenceSources, fts_query_for_reply
 from eidolon.world import World
 
 CaseKind = Literal["story", "facts", "work", "memory"]
@@ -208,7 +209,12 @@ async def evaluate(
             )
             scores = {near[i].key: score for i, score in best}
         else:
-            ranked = await sources.rank(reranker, characters[case.character], query_text)
+            ranked = await sources.rank(
+                reranker,
+                characters[case.character],
+                query_text,
+                fts_text=fts_query_for_reply(case.previous, case.query),
+            )
             scores: dict[str, float] = {}
             for reference, score in ranked:  # an episode scores as its best passage
                 scores[reference.origin] = max(score, scores.get(reference.origin, 0.0))
@@ -250,7 +256,7 @@ def report(results: Sequence[CaseResult], model: str, thresholds: RerankThreshol
             f"不相关误放 {_at_least(irrelevant, threshold)}/{len(irrelevant)}",
         ]
         if missed := [(r.case.id, label) for r in group for label in r.not_retrieved]:
-            lines.append("没进入向量检索结果的相关候选（召回问题，与阈值无关）：")
+            lines.append("没进入检索结果的相关候选（召回问题，与阈值无关）：")
             lines += [f"  {case_id}：{label}" for case_id, label in missed]
     lines += ["", "## 逐条（+ 相关，~ 可放可不放，- 不相关）"]
     marks = {"relevant": "+", "acceptable": "~", "irrelevant": "-"}

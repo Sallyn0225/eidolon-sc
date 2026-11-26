@@ -10,9 +10,9 @@ it where the sources are opened (`retrieval.open_reference_sources`).
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Hashable, Sequence
 from dataclasses import dataclass, replace
-from typing import Literal, Protocol
+from typing import Literal, Protocol, TypeVar
 
 from eidolon.characters import Character
 from eidolon.embedding import EmbeddingError, Reembeddable
@@ -25,6 +25,10 @@ ReferenceKind = Literal["episode", "fact", "work"]
 HYBRID_CANDIDATE_MULTIPLIER = 2
 """When fusing vector and FTS5 candidates in one source, each path fetches `limit *
 HYBRID_CANDIDATE_MULTIPLIER` candidates before RRF fusion and truncation to `limit`."""
+FTS_RRF_WEIGHT = 0.9
+"""Weight applied to FTS5 rankings relative to dense vector rankings (1.0) during RRF
+fusion, keeping high-precision vector top hits ahead of FTS5 noise while still lifting
+dual-matched and strong FTS5-only candidates into the reranker pool."""
 
 
 @dataclass(frozen=True)
@@ -71,18 +75,36 @@ class ReferenceSource(Reembeddable, Protocol):
         ...
 
 
+T = TypeVar("T")
+
+
+def fuse_hybrid(
+    vector_items: Sequence[T],
+    fts_items: Sequence[T],
+    limit: int,
+    *,
+    key: Callable[[T], Hashable],
+) -> list[tuple[T, float]]:
+    """Fuse vector and FTS5 rankings with weighted RRF (`RRF_K`, weighting FTS5 by
+    `FTS_RRF_WEIGHT` when both paths are present) and truncate to `limit`."""
+    if limit <= 0 or (not vector_items and not fts_items):
+        return []
+    weights = (1.0, FTS_RRF_WEIGHT) if vector_items and fts_items else None
+    fused = rrf_fuse([vector_items, fts_items], key=key, k=RRF_K, weights=weights)
+    return fused[:limit]
+
+
 def fuse_references(
     vector_refs: Sequence[Reference],
     fts_refs: Sequence[Reference],
     limit: int,
 ) -> list[Reference]:
-    """Fuse vector and FTS5 candidates from one source with RRF (`RRF_K`), keeping
-    distinct passages/entries (deduplicated by `(origin, text)`) and storing the RRF
-    score in `Reference.similarity`."""
-    if limit <= 0 or (not vector_refs and not fts_refs):
-        return []
-    fused = rrf_fuse([vector_refs, fts_refs], key=lambda r: (r.origin, r.text), k=RRF_K)
-    return [replace(ref, similarity=score) for ref, score in fused[:limit]]
+    """Fuse vector and FTS5 candidates from one source with RRF (`RRF_K`, weighting
+    FTS5 by `FTS_RRF_WEIGHT` when both paths are present), keeping distinct
+    passages/entries (deduplicated by `(origin, text)`) and storing the RRF score in
+    `Reference.similarity`."""
+    fused = fuse_hybrid(vector_refs, fts_refs, limit, key=lambda r: (r.origin, r.text))
+    return [replace(ref, similarity=score) for ref, score in fused]
 
 
 async def search_hybrid_references(

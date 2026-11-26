@@ -1,16 +1,19 @@
-"""The story corpus: episodes the characters can recall, and their vector index.
+"""The story corpus: episodes the characters can recall, and their vector and FTS5 indexes.
 
 Each episode is keyed by its source identifier (the game script it came from), so
 saving the same episode again replaces it. Each episode also records the format it was
 imported from, so an import can leave alone a better version from another. Episodes
-are split into passages of consecutive lines; each passage is embedded and searched
-by cosine similarity, only among the episodes the asking character is in the cast of. Passages whose
+are split into passages of consecutive lines; each passage is embedded for cosine
+similarity search and tokenized into a contentless FTS5 index (`episode_passages_fts`,
+CJK 2-grams + lowercased ASCII words) so both vector similarity and full-text BM25
+search only among the episodes the asking character is in the cast of. Passages whose
 text has not changed keep their vectors, so re-importing costs no embedding calls.
 An episode with no cast is kept but not embedded: no character could recall it.
 
 Each passage keeps one vector, from the embedding model it was last embedded with;
-only passages embedded with the current model are searched. After the model changes,
-`embed_missing` re-embeds the rest from their stored text (`eidolon reembed`).
+only passages embedded with the current model are searched by vector (FTS5 still covers
+all stored passages). After the model changes, `embed_missing` re-embeds the rest from
+their stored text (`eidolon reembed`).
 
 The vectors are searched in memory: every passage's from the current model, read at once
 (`load`, as the server starts) and kept as one matrix, with the rows of each character's
@@ -80,8 +83,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS episode_passages_fts USING fts5(
     tokens,
     content='',
     contentless_delete=1,
-    tokenize='unicode61',
-    detail='column'
+    tokenize='unicode61'
 );
 CREATE TABLE IF NOT EXISTS story_corpus_version (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -175,8 +177,8 @@ class StoryCorpus:
         self._embedder = embedder
         self.missing_vectors_at_open: int = db.prepare(_open, embedder.model)
         """How many passages had no vector from this corpus's embedder as it was opened,
-        and so cannot be found: those embedded before the embedding service, model or
-        dimensions changed."""
+        and so cannot be found by vector search (FTS5 still matches them): those embedded
+        before the embedding service, model or dimensions changed."""
         self._held: _Vectors | None = None
         """The vectors searched, once loaded."""
         self._loading: asyncio.Task[_Vectors] | None = None
@@ -235,7 +237,7 @@ class StoryCorpus:
         return await self._db.read(_catalog, character_id)
 
     async def search(self, query: str, character_id: str, limit: int = 5) -> list[Passage]:
-        """The passages most similar to `query`, from episodes `character_id` appears in."""
+        """The passages most similar to `query` by vector similarity, from episodes `character_id` appears in."""
         return await self.search_by_vector(
             await self._embedder.embed_query(query), character_id, limit
         )
@@ -341,6 +343,12 @@ class StoryCorpus:
 def _open(db: sqlite3.Connection, model: str) -> int:
     """Make the tables, or bring them up to date; how many passages have no vector from
     `model`."""
+    fts_sql = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'episode_passages_fts'"
+    ).fetchone()
+    # Contentless FTS5 with detail='column' returns 0.0 for bm25(); rebuild once with default detail='full'.
+    if fts_sql is not None and "detail='column'" in fts_sql[0].lower().replace('"', "'").replace(" ", ""):
+        db.execute("DROP TABLE episode_passages_fts")
     db.executescript(_SCHEMA)
     columns = {r["name"] for r in by_name(db).execute("PRAGMA table_info(episodes)")}
     if "imported_from" not in columns:  # corpora from before JSON import were all CSV

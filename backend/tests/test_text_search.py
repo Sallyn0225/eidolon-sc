@@ -44,6 +44,11 @@ def test_rrf_fuse_merges_deduplicates_and_orders_by_reciprocal_rank_score():
     assert [score for _, score in fused] == pytest.approx(
         [1 / 62 + 1 / 61, 1 / 61, 1 / 62]
     )
+    weighted = rrf_fuse(
+        [[("a", 0.9)], [("b", 5.0)]], key=lambda item: item[0], k=15, weights=(1.0, 0.9)
+    )
+    assert [item[0] for item, _ in weighted] == ["a", "b"]
+    assert [score for _, score in weighted] == pytest.approx([1.0 / 16, 0.9 / 16])
     assert rrf_fuse([[], []], key=lambda item: item) == []
 
 

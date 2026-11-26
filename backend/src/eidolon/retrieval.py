@@ -100,14 +100,14 @@ FALLBACK_REFERENCES = 3
 """How many references a turn's prompt carries if reranking fails: those best by their
 RRF score (or cosine similarity in vector-only paths), of which no threshold can tell the
 relevant."""
-FTS_MIN_STANDALONE_TOKENS = 4
+FTS_MIN_STANDALONE_TOKENS = 7
 """Non-stopword query-token threshold below which FTS5 treats the user's message as a
 short follow-up and falls back to `memory_query` (her previous reply + user text).
 
-With CJK 2-gram stride-1 indexing + `STOPWORDS`, 4–5 char follow-ups like 「那时候累吗」
-yield 3 tokens (`["那时", "候累", "累吗"]`), so `< 4` triggers previous-reply context while
-normal noun queries (`灯織ちゃんは元気？` = 7, `ヒカリのdestination` = 4) stay undiluted.
-Exposed here for calibration (`eidolon eval retrieval`)."""
+With CJK 2-gram stride-1 indexing + `STOPWORDS`, short Chinese pronoun follow-ups like
+「那时候累吗」(3), 「那时候疼不疼啊」(5), 「那天你许了什么愿」(6) produce 3–6
+2-grams across surrounding particles, whereas standalone queries (`灯織ちゃんは元気？` = 7,
+`对了，你生日是几号来着？` = 8) stay undiluted (`eidolon eval retrieval`)."""
 
 RECALL_EPISODES = 2
 """The most episodes one call of the recall-story tool brings back."""
@@ -394,13 +394,13 @@ def open_reference_sources(
     and, given a world setting, the work facts; without one, the work facts are there only
     to be embedded again, which forgets whatever vectors they had. Warns (unless not to
     `warn`) if story passages have no vector from `embedder`'s model, as they cannot be
-    found."""
+    found by vector search."""
     corpus = StoryCorpus(db, embedder)
     if warn and (missing := corpus.missing_vectors_at_open):
         log.warning(
             "%d story passages have no vectors from the embedding model %s and cannot be"
-            " found: run `eidolon reembed` after changing the embedding service, model"
-            " or dimensions",
+            " found by vector search: run `eidolon reembed` after changing the embedding"
+            " service, model or dimensions",
             missing, embedder.model,
         )
     sources: list[ReferenceSource] = [

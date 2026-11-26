@@ -3,7 +3,8 @@
 Facts come from the character configuration, not an import: each character's facts are a
 scope of the embedded text set, embedded the first time they are searched and kept until
 a fact is edited or removed, so an edit to a facts file takes effect after a restart
-without any command and costs only the changed entries.
+without any command and costs only the changed entries. An in-memory FTS5 index (combining
+each fact's title and text) is built on demand for hybrid search and embedding fallback.
 """
 
 import asyncio

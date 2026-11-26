@@ -23,8 +23,8 @@ from typing import TypeVar, cast
 
 from eidolon import database
 
-RRF_K = 60
-"""Default smoothing constant for Reciprocal Rank Fusion."""
+RRF_K = 15
+"""Smoothing constant for Reciprocal Rank Fusion over top-N per-source lists."""
 
 T = TypeVar("T")
 
@@ -130,12 +130,16 @@ def rrf_fuse(
     key: Callable[[T], Hashable] | None = None,
     *,
     k: int = RRF_K,
+    weights: Sequence[float] | None = None,
 ) -> list[tuple[T, float]]:
     """Fuse multiple ordered result lists using Reciprocal Rank Fusion
-    (``score = sum(1 / (k + rank))`` with 1-based ranks), deduplicating by `key`."""
+    (``score = sum(w / (k + rank))`` with 1-based ranks), deduplicating by `key`."""
+    rank_weights = weights if weights is not None else [1.0] * len(rankings)
+    if len(rank_weights) != len(rankings):
+        raise ValueError("weights length must match rankings length")
     scores: dict[Hashable, float] = {}
     items: dict[Hashable, T] = {}
-    for ranking in rankings:
+    for ranking, weight in zip(rankings, rank_weights, strict=True):
         seen: set[Hashable] = set()
         for rank, item in enumerate(ranking, start=1):
             item_key = key(item) if key is not None else cast(Hashable, item)
@@ -143,7 +147,7 @@ def rrf_fuse(
                 continue
             seen.add(item_key)
             items.setdefault(item_key, item)
-            scores[item_key] = scores.get(item_key, 0.0) + 1.0 / (k + rank)
+            scores[item_key] = scores.get(item_key, 0.0) + weight / (k + rank)
     ordered = sorted(scores, key=lambda item_key: scores[item_key], reverse=True)
     return [(items[item_key], scores[item_key]) for item_key in ordered]
 
