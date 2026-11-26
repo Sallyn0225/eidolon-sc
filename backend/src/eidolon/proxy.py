@@ -35,9 +35,17 @@ proxy) may have open at once. Every user's turns and calls share them: httpx's o
 100 are for one program's requests, and with replies streamed for up to a minute, a busy
 hour would wait on them."""
 
-POOL_LIMITS = httpx.Limits(max_connections=MAX_CONNECTIONS, max_keepalive_connections=60)
-"""`MAX_CONNECTIONS`, of which as many as 60 are kept open between requests (httpx's own
-20)."""
+KEEPALIVE_EXPIRY = 90.0
+"""Seconds an idle connection stays in the pool (httpx's own 5 s drops it between turns
+15–40 s apart, paying a fresh TLS handshake on the next judge or retrieval call)."""
+
+POOL_LIMITS = httpx.Limits(
+    max_connections=MAX_CONNECTIONS,
+    max_keepalive_connections=60,
+    keepalive_expiry=KEEPALIVE_EXPIRY,
+)
+"""`MAX_CONNECTIONS`, of which as many as 60 are kept open for up to `KEEPALIVE_EXPIRY`
+seconds between requests (httpx's own 20 for 5 s)."""
 
 TLS_CONTEXT = httpx.create_ssl_context()
 """How a connection to a provider over HTTPS checks it, as httpx's own transports do, made
