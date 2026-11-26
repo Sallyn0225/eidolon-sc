@@ -16,7 +16,6 @@ from dataclasses import replace
 from datetime import timedelta
 
 import pytest
-from pipecat.tests.utils import SleepFrame
 
 from eidolon.config import Settings
 from tests.browser import open_browser
@@ -39,9 +38,12 @@ from tests.test_call_turns import (  # noqa: F401
     NOW,
     SLOW_REPLY,
     CallUnderTest,
+    cool,
     kinds,
     mano_call,
     spoken,
+    wait_ended,
+    wait_spoken,
     without_emotions,
 )
 from tests.test_conversation_events import record, shape
@@ -97,10 +99,9 @@ async def test_a_reply_she_has_started_speaking_goes_no_further_and_nothing_afte
     mano_call: CallUnderTest,
 ):
     _, messages = await mano_call.run(
-        FakeLLM(INTERRUPTED_REPLY, REPLY, delay=0.3),
-        [spoken("早上好"), *INTERRUPTIBLE, SleepFrame(0.3), spoken("还在吗"), SleepFrame(0.5)],
+        FakeLLM(INTERRUPTED_REPLY, REPLY),
+        [spoken("早上好"), *INTERRUPTIBLE, cool(UNTIL), wait_ended(), spoken("还在吗")],
         affinity=[level(2), level(2)],
-        cooled=(0.5, UNTIL),
     )
 
     told = without_emotions(messages)
@@ -115,10 +116,9 @@ async def test_a_reply_she_has_not_started_speaking_is_dropped_turn_and_all(
     mano_call: CallUnderTest,
 ):
     _, messages = await mano_call.run(
-        FakeLLM(SLOW_REPLY, delay=0.3),
-        [spoken("早上好"), SleepFrame(0.5)],
+        FakeLLM(SLOW_REPLY),
+        [spoken("早上好"), wait_spoken("ほわっ"), cool(UNTIL), wait_ended()],
         affinity=[level(2)],
-        cooled=(0.2, UNTIL),
     )
 
     assert kinds(without_emotions(messages)) == ["user", "ended"]

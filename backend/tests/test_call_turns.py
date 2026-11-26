@@ -10,7 +10,7 @@ What is a follow-on and what interrupts the character is `TurnTaking`'s, tested 
 
 import asyncio
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -97,7 +97,7 @@ class CallUnderTest:
     async def run(
         self,
         llm: FakeLLM,
-        frames: Sequence[Frame],
+        frames: Sequence["ScriptStep"],
         *,
         muted: bool = False,
         limits: CallLimits = CallLimits(),
@@ -109,14 +109,13 @@ class CallUnderTest:
         emotion: EmotionSettings | None = None,
         follow_on_timeout: float = SONIOX_FOLLOW_ON_TIMEOUT,
         affinity: Sequence[Judging] | None = None,
-        cooled: tuple[float, datetime] | None = None,
     ) -> tuple[list[str], list[dict]]:
         """Run the frames through; returns the text sent to TTS and the messages sent to the browser."""
         down = await self.run_frames(
             llm, frames, muted=muted, limits=limits, memory=memory,
             retrieval_judge=retrieval_judge, embedder=embedder, connected=connected,
             judge=judge, emotion=emotion, follow_on_timeout=follow_on_timeout,
-            affinity=affinity, cooled=cooled,
+            affinity=affinity,
         )
         spoken = [f.text for f in down if isinstance(f, SegmentTextFrame)]
         messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
@@ -125,7 +124,7 @@ class CallUnderTest:
     async def run_frames(
         self,
         llm: FakeLLM,
-        frames: Sequence[Frame],
+        frames: Sequence["ScriptStep"],
         *,
         muted: bool = False,
         limits: CallLimits = CallLimits(),
@@ -137,15 +136,13 @@ class CallUnderTest:
         emotion: EmotionSettings | None = None,
         follow_on_timeout: float = SONIOX_FOLLOW_ON_TIMEOUT,
         affinity: Sequence[Judging] | None = None,
-        cooled: tuple[float, datetime] | None = None,
     ) -> Sequence[Frame]:
         """Run the frames through a call that, unless told otherwise, connects as it starts,
         remembering with the background model `memory`, if given, and retrieving with
         `retrieval_judge` and `embedder` (new ones unless given), with `judge` as the deployer's Jev judging
         each segment's emotion, if given, as `emotion` says, and its speech recognition
         taking `follow_on_timeout` at most to transcribe a follow-on. Given `affinity`, affinity is on, the judge model judging
-        each turn's as it says (`FakeJudgeModel.judgings`). Given `cooled`, she falls into a
-        cooldown elsewhere that many seconds into the call, ending when it says."""
+        each turn's as it says (`FakeJudgeModel.judgings`)."""
         remembering = {} if memory is None else {
             "background_llm": memory, "retrieval_judge": retrieval_judge or FakeJudge(),
             "embedder": embedder or FakeEmbedder(),
@@ -179,12 +176,13 @@ class CallUnderTest:
             )
             if connected:
                 turns.connected()
-            if cooled is not None:
-                asyncio.get_running_loop().call_later(cooled[0], turns.cooled, cooled[1])
             if isinstance(frames, OneByOne):
                 down = await run_one_by_one(turns, frames)
+            elif any(isinstance(step, WaitFor | WaitEvent | Do) for step in frames):
+                down = await run_script(turns, frames)
             else:
-                down, _ = await run_test(turns, frames_to_send=frames)
+                plain = [step for step in frames if isinstance(step, Frame)]
+                down, _ = await run_test(turns, frames_to_send=plain)
             await outcome.settle()
         finally:
             await backend.aclose()
@@ -287,7 +285,9 @@ async def run_one_by_one(turns: CallTurns, frames: Sequence[Frame]) -> list[Fram
     overtake a transcription still queued, and what came before the turn was over would
     be a follow-on to it. Returns the frames that reached the end of the pipeline."""
     received = Received()
-    worker = PipelineWorker(Pipeline([turns, received]), cancel_on_idle_timeout=False)
+    worker = PipelineWorker(
+        Pipeline([turns, received]), cancel_on_idle_timeout=False, enable_rtvi=False
+    )
     started = asyncio.Event()
 
     @worker.event_handler("on_pipeline_started")
@@ -314,15 +314,117 @@ async def run_one_by_one(turns: CallTurns, frames: Sequence[Frame]) -> list[Fram
     return received.frames
 
 
+class WaitFor:
+    """Pause a call script until a downstream frame matching `predicate` arrives."""
+
+    def __init__(self, predicate: Callable[[Frame], bool], description: str) -> None:
+        self.predicate = predicate
+        self.description = description
+
+
+class WaitEvent:
+    """Pause a call script until `event` is set."""
+
+    def __init__(self, event: asyncio.Event, description: str) -> None:
+        self.event = event
+        self.description = description
+
+
+class Do:
+    """Invoke a callback against `CallTurns` at this point in a call script."""
+
+    def __init__(self, action: Callable[[CallTurns], None]) -> None:
+        self.action = action
+
+
+ScriptStep = Frame | WaitFor | WaitEvent | Do
+
+
+def wait_spoken(text: str) -> WaitFor:
+    return WaitFor(
+        lambda f: isinstance(f, SegmentTextFrame) and f.text == text,
+        f"spoken {text!r}",
+    )
+
+
+def wait_frame(kind: type[Frame]) -> WaitFor:
+    return WaitFor(lambda f: isinstance(f, kind), kind.__name__)
+
+
+def wait_done() -> WaitFor:
+    return WaitFor(
+        lambda f: isinstance(f, RTVIServerMessageFrame) and f.data["type"] in ("done", "error"),
+        "reply done",
+    )
+
+
+def wait_ended() -> WaitFor:
+    return WaitFor(
+        lambda f: isinstance(f, RTVIServerMessageFrame) and f.data["type"] == "ended",
+        "call ended",
+    )
+
+
+def wait_event(event: asyncio.Event, description: str = "event") -> WaitEvent:
+    return WaitEvent(event, description)
+
+
+def cool(until: datetime) -> Do:
+    return Do(lambda turns: turns.cooled(until))
+
+
+async def run_script(turns: CallTurns, steps: Sequence[ScriptStep]) -> list[Frame]:
+    """Run `steps` through `turns`, pausing at each `WaitFor` / `WaitEvent` / `SleepFrame`
+    and executing each `Do` synchronously at that exact point in the stream."""
+    received = Received()
+    worker = PipelineWorker(
+        Pipeline([turns, received]), cancel_on_idle_timeout=False, enable_rtvi=False
+    )
+    started = asyncio.Event()
+
+    @worker.event_handler("on_pipeline_started")
+    async def on_started(worker: PipelineWorker, frame: Frame) -> None:
+        started.set()
+
+    async def send() -> None:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        cursor = 0
+        for step in steps:
+            if isinstance(step, WaitFor):
+                try:
+                    cursor = await asyncio.wait_for(
+                        received.wait_until(step.predicate, cursor), timeout=5
+                    )
+                except TimeoutError:
+                    raise TimeoutError(f"timed out waiting for {step.description}") from None
+            elif isinstance(step, WaitEvent):
+                try:
+                    await asyncio.wait_for(step.event.wait(), timeout=5)
+                except TimeoutError:
+                    raise TimeoutError(f"timed out waiting for {step.description}") from None
+            elif isinstance(step, Do):
+                step.action(turns)
+            elif isinstance(step, SleepFrame):
+                await asyncio.sleep(step.sleep)
+            else:
+                await worker.queue_frame(step)
+        await worker.queue_frame(EndFrame())
+
+    runner = WorkerRunner(handle_sigint=False)
+    await runner.add_workers(worker)
+    await asyncio.gather(runner.run(), send())
+    return received.frames
+
+
 class Received(FrameProcessor):
     """The end of the pipeline: keeps what reaches it downstream, as `run_test` does, and
-    counts the replies over, each told the browser with `done` or `error`."""
+    notifies waiters on every frame and completed reply."""
 
     def __init__(self) -> None:
         super().__init__(enable_direct_mode=True)
         self.frames: list[Frame] = []
         self._replies_over = 0
-        self._counted = asyncio.Event()
+        self._arrived = asyncio.Event()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -330,14 +432,25 @@ class Received(FrameProcessor):
             self.frames.append(frame)
             if isinstance(frame, RTVIServerMessageFrame) and frame.data["type"] in ("done", "error"):
                 self._replies_over += 1
-                self._counted.set()
+            self._arrived.set()
         await self.push_frame(frame, direction)
 
     async def replies_over(self, n: int) -> None:
         """Wait till `n` replies are over."""
         while self._replies_over < n:
-            self._counted.clear()
-            await self._counted.wait()
+            self._arrived.clear()
+            await self._arrived.wait()
+
+    async def wait_until(self, predicate: Callable[[Frame], bool], start: int) -> int:
+        """Wait until a downstream frame at index >= `start` matches `predicate`."""
+        index = start
+        while True:
+            while index < len(self.frames):
+                if predicate(self.frames[index]):
+                    return index + 1
+                index += 1
+            self._arrived.clear()
+            await self._arrived.wait()
 
 
 def spoken(text: str) -> TranscriptionFrame:
@@ -414,9 +527,14 @@ async def test_blank_input_is_ignored(mano_call: CallUnderTest):
 
 INTERRUPTED_REPLY = ["<ja>ほわっ</ja><zh>哇</zh>", "<ja>今日", HANG]
 """A reply with one complete segment, then half of the next, then nothing, ever."""
-INTERRUPTIBLE = [SleepFrame(0.1), BotStartedSpeakingFrame(), SleepFrame(0.3)]
-"""The character starts speaking, and goes on until the second segment is started."""
-INTERRUPTING = [*INTERRUPTIBLE, InterruptionFrame()]
+INTERRUPTIBLE: list[ScriptStep] = [
+    wait_spoken("今日"), BotStartedSpeakingFrame(), wait_frame(BotStartedSpeakingFrame),
+]
+"""Once both the complete segment and the half-spoken second segment have reached TTS,
+the character is speaking and can be interrupted."""
+INTERRUPTING: list[ScriptStep] = [
+    *INTERRUPTIBLE, InterruptionFrame(), wait_frame(InterruptionFrame),
+]
 """The user interrupts her then."""
 
 
@@ -426,7 +544,7 @@ async def test_an_interruption_stops_the_reply_which_is_recorded_with_its_comple
     memory = FakeBackgroundLLM()
 
     spoken_text, messages = await mano_call.run(
-        FakeLLM(INTERRUPTED_REPLY, delay=0.3), [spoken("早上好"), *INTERRUPTING],
+        FakeLLM(INTERRUPTED_REPLY), [spoken("早上好"), *INTERRUPTING],
         memory=memory, limits=CallLimits(turns=1),
     )
     messages = without_emotions(messages)
@@ -441,10 +559,10 @@ async def test_an_interruption_stops_the_reply_which_is_recorded_with_its_comple
 
 
 async def test_what_interrupts_the_character_is_taken_up_at_once(mano_call: CallUnderTest):
-    llm = FakeLLM(INTERRUPTED_REPLY, MANO_REPLY, delay=0.3)
+    llm = FakeLLM(INTERRUPTED_REPLY, MANO_REPLY)
 
     _, messages = await mano_call.run(
-        llm, [spoken("早上好"), *INTERRUPTING, SleepFrame(0.1), spoken("在吗")]
+        llm, [spoken("早上好"), *INTERRUPTING, spoken("在吗")]
     )
 
     assert said(messages) == ["早上好", "在吗"]
@@ -454,7 +572,7 @@ async def test_what_interrupts_the_character_is_taken_up_at_once(mano_call: Call
 async def test_what_is_typed_once_the_reply_can_be_interrupted_interrupts_the_character(
     mano_call: CallUnderTest,
 ):
-    llm = FakeLLM(INTERRUPTED_REPLY, MANO_REPLY, delay=0.3)
+    llm = FakeLLM(INTERRUPTED_REPLY, MANO_REPLY)
 
     down = await mano_call.run_frames(llm, [spoken("早上好"), *INTERRUPTIBLE, typed("在吗")])
 
@@ -468,8 +586,9 @@ async def test_what_is_typed_once_the_reply_can_be_interrupted_interrupts_the_ch
     ]
 
 
-SLOW_REPLY = ["<ja>ほわっ", "</ja><zh>哇</zh>", "<ja>今日も</ja><zh>今天也</zh>"]
-"""A reply slow enough to be followed on: its first segment completes 0.3 s in."""
+SLOW_REPLY = ["<ja>ほわっ", HANG]
+"""A reply that starts speaking a first segment and pauses before completing it, so a
+follow-on or hang-up can drop it deterministically once `wait_spoken("ほわっ")` fires."""
 
 
 def said(messages: list[dict]) -> list[str]:
@@ -483,14 +602,15 @@ def without_emotions(messages: list[dict]) -> list[dict]:
 
 
 async def test_what_is_said_before_the_character_speaks_joins_the_turn(mano_call: CallUnderTest):
-    # Slower than the others: her first reply must have begun, taking the first of the
-    # script, before the user goes on, and a slow runner may take a while to begin it.
-    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.6)
+    llm = FakeLLM(SLOW_REPLY, MANO_REPLY)
     memory = FakeBackgroundLLM()
 
     _, messages = await mano_call.run(
         llm,
-        [spoken("早上好"), SleepFrame(0.3), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
+        [
+            spoken("早上好"), wait_spoken("ほわっ"),
+            InterruptionFrame(), wait_frame(InterruptionFrame), spoken("在吗"),
+        ],
         memory=memory,
     )
     messages = without_emotions(messages)
@@ -514,7 +634,12 @@ async def test_a_follow_on_drops_what_the_turn_was_looking_up_and_looks_up_the_w
 
     _, messages = await mano_call.run(
         llm,
-        [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
+        [
+            spoken("早上好"),
+            wait_event(judge.holding, "judge holding"),
+            wait_event(embedder.hung, "embedder hanging"),
+            InterruptionFrame(), wait_frame(InterruptionFrame), spoken("在吗"),
+        ],
         memory=FakeBackgroundLLM(), retrieval_judge=judge, embedder=embedder,
     )
 
@@ -529,11 +654,14 @@ async def test_a_follow_on_drops_what_the_turn_was_looking_up_and_looks_up_the_w
 async def test_a_turn_with_a_follow_on_changes_affinity_as_the_whole_of_it_is_judged(
     mano_call: CallUnderTest, settings: Settings
 ):
-    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
+    llm = FakeLLM(SLOW_REPLY, MANO_REPLY)
 
     _, messages = await mano_call.run(
         llm,
-        [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
+        [
+            spoken("早上好"), wait_spoken("ほわっ"),
+            InterruptionFrame(), wait_frame(InterruptionFrame), spoken("在吗"),
+        ],
         affinity=[level(0), level(4)],
     )
     done = without_emotions(messages)[-1]
@@ -553,9 +681,11 @@ async def test_what_is_typed_before_the_character_speaks_joins_the_turn_and_stop
     mano_call: CallUnderTest,
 ):
     """The turn is replied to afresh, going to TTS under a number of its own."""
-    llm = FakeLLM(SLOW_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"], delay=0.3)
+    llm = FakeLLM(SLOW_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"])
 
-    down = await mano_call.run_frames(llm, [spoken("早上好"), SleepFrame(0.1), typed("在吗")])
+    down = await mano_call.run_frames(
+        llm, [spoken("早上好"), wait_spoken("ほわっ"), typed("在吗")]
+    )
 
     messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
     assert said(messages) == ["早上好", "早上好\n在吗"]
@@ -572,10 +702,11 @@ async def test_what_is_typed_before_the_character_speaks_joins_the_turn_and_stop
 async def test_a_follow_on_never_transcribed_has_the_turn_replied_to_again_in_time(
     mano_call: CallUnderTest,
 ):
-    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
+    llm = FakeLLM(SLOW_REPLY, MANO_REPLY)
 
     _, messages = await mano_call.run(
-        llm, [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1)],
+        llm,
+        [spoken("早上好"), wait_spoken("ほわっ"), InterruptionFrame(), wait_frame(InterruptionFrame)],
         follow_on_timeout=0.3,
     )
 

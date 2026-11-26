@@ -1035,6 +1035,7 @@ class FakeEmbedder:
         self.down = False
         self.documents_down = False
         self.hanging: set[str] = set()
+        self.hung = asyncio.Event()
         self.abandoned: list[str] = []
 
     async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
@@ -1049,6 +1050,7 @@ class FakeEmbedder:
             raise EmbeddingError("fake embedding service is down")
         self.queries.append(text)
         if text in self.hanging:
+            self.hung.set()
             try:
                 await asyncio.Event().wait()
             except asyncio.CancelledError:

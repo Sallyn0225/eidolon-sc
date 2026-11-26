@@ -46,6 +46,8 @@ from tests.test_call_turns import (  # noqa: F401
     kinds,
     mano_call,
     spoken,
+    wait_frame,
+    wait_spoken,
 )
 from tests.test_delete_account import user_id
 from tests.test_service_status import backend_of
@@ -385,13 +387,14 @@ async def test_the_turns_of_a_call_are_recorded_under_it_as_they_turned_out(
     """A follow-on joins the turn, whose dropped reply is not a turn of its own; an
     interrupted reply is a turn done. Each segment's emotion is judged for the call. How
     each turn's result is decided is `TurnOutcome`'s (`test_turn_outcome`)."""
-    llm = FakeLLM(SLOW_REPLY, INTERRUPTED_REPLY, MANO_REPLY, delay=0.3)
+    llm = FakeLLM(SLOW_REPLY, INTERRUPTED_REPLY, MANO_REPLY)
 
     _, messages = await mano_call.run(
         llm,
         [
-            spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1),
-            spoken("在吗"), *INTERRUPTING, SleepFrame(0.1), spoken("还在吗"),
+            spoken("早上好"), wait_spoken("ほわっ"),
+            InterruptionFrame(), wait_frame(InterruptionFrame),
+            spoken("在吗"), *INTERRUPTING, spoken("还在吗"),
         ],
         judge=FakeJudge(),
     )
