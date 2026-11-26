@@ -264,7 +264,7 @@ npm run build && BACKEND_URL=http://localhost:8000 npm run start   # :3000 で�
 eidolon-sc/
 ├── backend/          # Python バックエンド：FastAPI + Pipecat。会話エンジン、通話、検索、メモリー、同期とコマンドライン（eidolon）
 │   ├── src/eidolon/
-│   ├── eval/         #   並べ替え・判断モデル・メモリーの評価用データセット（質問とラベルのみ、シナリオ本文は含まない）
+│   ├── eval/         #   検索・並べ替え・判断モデル・メモリーの評価用データセット（質問とラベルのみ、シナリオ本文は含まない）
 │   └── tests/
 ├── frontend/         # Next.js フロントエンド：ランディングページ、会話、通話画面、設定、管理画面
 ├── characters/       # キャラクター設定、キャラクターシート、資料、アイコン、読み表、世界設定

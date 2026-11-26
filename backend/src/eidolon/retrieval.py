@@ -5,35 +5,39 @@ talk costs no retrieval latency; memories only, when the user talks about their
 own life, for which the turn finds the memories of what they have told any of the
 characters; references, for which the reference sources (the story corpus, only episodes
 the character is cast in; the character's facts; and the work facts all characters share,
-when there is a world setting) are searched with the same query vector, the candidates
-reranked together, and the best few that are relevant enough go into the prompt, each
-under its source's heading, while the turn finds the user's memories alongside; or
-recall, for a question about how some past episode went, for which the episodes are
-recalled as the recall-story tool would, the lives and releases of the work facts
-reranked along with them, and the result goes into the prompt, saving the chat model a
-round of calling it. The story not telling how something went does not mean she never
-went through it: she may have stood on that stage all the same.
+when there is a world setting) are searched by vector similarity and FTS5 full-text
+matching fused with RRF, the candidates reranked together, and the best few that are
+relevant enough go into the prompt, each under its source's heading, while the turn finds
+the user's memories alongside; or recall, for a question about how some past episode went,
+for which the episodes are recalled as the recall-story tool would, the lives and releases
+of the work facts reranked along with them, and the result goes into the prompt, saving
+the chat model a round of calling it. The story not telling how something went does not
+mean she never went through it: she may have stood on that stage all the same.
 
-References, memories and recall alike are looked up with what the user said after the
-character's reply before it, as people see it (`memory.memory_query`): 「那时候累吗」 alone
-finds nothing, her reply says what 「那时候」 is. Embedding and reranking both use it; the
-judge model is told what it always was, the latest messages and what the user said.
+Memories, vectors and reranking alike look up what the user said after the character's
+reply before it, as people see it (`memory.memory_query`): 「那时候累吗」 alone finds
+nothing, her reply says what 「那时候」 is. FTS5 prefers what the user just said alone so
+long as it carries enough non-stopword tokens (`FTS_MIN_STANDALONE_TOKENS`), falling back
+to `memory_query` only on short follow-ups; the judge model is told what it always was,
+the latest messages and what the user said.
 
 The judge model takes longest, so the turn does not wait for it to start looking: as it
-judges, the query is embedded, once, and the candidates found with the vector, the
-nearest of each reference source and of the user's memories. Once it has judged, only
-the candidates the turn needs are reranked, so no more often than if the turn had
-waited: the references' and the memories', the memories' alone, or the story's with the
-work facts' lives and releases to recall. A turn needing nothing drops them, and
-whatever is still being looked up. The vector goes on to the writing down, which shows
-the background model the memories nearest the same query (`MemoryTurn.write_down`).
+judges, the query is embedded once and FTS5 searches run in parallel, then vector search
+and RRF fusion produce the candidates of each reference source alongside the user's
+nearest memories. Once it has judged, only the candidates the turn needs are reranked, so
+no more often than if the turn had waited: the references' and the memories', the
+memories' alone, or the story's with the work facts' lives and releases to recall. A turn
+needing nothing drops them, and whatever is still being looked up. The vector goes on to
+the writing down, which shows the background model the memories nearest the same query
+(`MemoryTurn.write_down`).
 
 Retrieval never fails a turn, nor holds it up for long: embedding and reranking are given
 a few seconds and asked again once (`retry`). If the judge model cannot answer, the turn
-retrieves anyway; if the query cannot be embedded, it goes on without references or
-memories. If reranking fails, the nearest few references by their vectors go into the
-prompt instead, unthresholded, as do the nearest episode (and live or release) for recall;
-memories do not, as one the reranker never judged might be what the user never said.
+retrieves anyway; if embedding fails, memories are left out while references and recall
+fall back to FTS5. If reranking fails, the top few references by their RRF score (or
+vector/FTS5 rank) go into the prompt instead, unthresholded, as do the best episode (and
+live or release) for recall; memories do not, as one the reranker never judged might be
+what the user never said.
 
 Where affinity is on, the judge model is asked what the turn does to it in the same
 request (`affinity_judge.QUESTIONS`); failing, it fails both. So too, in a turn that could
@@ -41,9 +45,10 @@ have a photo, whether the user asks her for one (`photo_judge`), no if it fails.
 
 The chat model can also look an episode up itself with the recall-story tool, for
 general questions like "what happened that time with the photo book" that the judge
-model did not catch: the best matching episodes she is cast in come back with where they
-sit in her story catalog (card or event, and its other episodes) and what happened in them.
-The tool looks only in the story.
+model did not catch: the best matching episodes (via hybrid RRF, falling back to FTS5 if
+embedding fails) she is cast in come back with where they sit in her story catalog (card
+or event, and its other episodes) and what happened in them. The tool looks only in the
+story.
 """
 
 import asyncio
@@ -68,12 +73,20 @@ from eidolon.judge import (
     turn_state,
 )
 from eidolon.llm import Tool
-from eidolon.memory import Memory, MemoryTurn, memory_query
+from eidolon.memory import Memory, MemoryTurn, joined_query, memory_query
 from eidolon.photo_judge import QUESTIONS as PHOTO_QUESTIONS
 from eidolon.photo_judge import read_asked
-from eidolon.references import Reference, ReferenceKind, ReferenceSource
+from eidolon.references import (
+    HYBRID_CANDIDATE_MULTIPLIER,
+    Reference,
+    ReferenceKind,
+    ReferenceSource,
+    fuse_references,
+    search_hybrid_references,
+)
 from eidolon.rerank import Reranker, RerankError
 from eidolon.store import Message
+from eidolon.text_search import query_tokens
 from eidolon.work_facts import WORK_RULE, WorkFacts
 from eidolon.world import EntryKind, World, WorldEntry
 
@@ -84,8 +97,17 @@ MAX_REFERENCES = 5
 CANDIDATES_PER_SOURCE = 12
 """How many candidates each reference source offers the reranker."""
 FALLBACK_REFERENCES = 3
-"""How many references a turn's prompt carries if reranking fails: those nearest by their
-vectors, of which no threshold can tell the relevant."""
+"""How many references a turn's prompt carries if reranking fails: those best by their
+RRF score (or cosine similarity in vector-only paths), of which no threshold can tell the
+relevant."""
+FTS_MIN_STANDALONE_TOKENS = 7
+"""Non-stopword query-token threshold below which FTS5 treats the user's message as a
+short follow-up and falls back to `memory_query` (her previous reply + user text).
+
+With CJK 2-gram stride-1 indexing + `STOPWORDS`, short Chinese pronoun follow-ups like
+「那时候累吗」(3), 「那时候疼不疼啊」(5), 「那天你许了什么愿」(6) produce 3–6
+2-grams across surrounding particles, whereas standalone queries (`灯織ちゃんは元気？` = 7,
+`对了，你生日是几号来着？` = 8) stay undiluted (`eidolon eval retrieval`)."""
 
 RECALL_EPISODES = 2
 """The most episodes one call of the recall-story tool brings back."""
@@ -122,7 +144,24 @@ _NOT_IN_STORY = (
     "剧情库里没有记录这段经过，但这不等于这件事没有发生过。"
     "不要编造经过，也不要说没有这回事；可以坦率地说细节记不太清了"
 )
-_CANNOT_RECALL = "暂时想不起来，现在查不到剧情。不要编造经过，可以坦率地说记不太清了。"
+
+
+def _is_short_followup(text: str) -> bool:
+    return len(query_tokens(text)) < FTS_MIN_STANDALONE_TOKENS
+
+
+def fts_query_for_reply(previous_reply: str | None, text: str) -> str:
+    """FTS5 query string given `previous_reply` and `text`: uses `text` alone unless it
+    has fewer than `FTS_MIN_STANDALONE_TOKENS` non-stopword tokens, in which case
+    `joined_query` appends it after `previous_reply`."""
+    return joined_query(previous_reply, text) if _is_short_followup(text) else text
+
+
+def fts_turn_query(history: Sequence[Message], text: str) -> str:
+    """FTS5 query string for a conversation turn: uses `text` alone unless it is a
+    short follow-up (`< FTS_MIN_STANDALONE_TOKENS` query tokens), in which case
+    `memory_query` includes the previous character reply."""
+    return memory_query(history, text) if _is_short_followup(text) else text
 
 
 Need = Literal["nothing", "memories", "references", "recall"]
@@ -160,9 +199,33 @@ class StoryReferences:
         self.corpus = corpus
 
     async def search(
+        self,
+        query_vector: Sequence[float] | None,
+        character: Character,
+        limit: int,
+        query: str | None = None,
+    ) -> list[Reference]:
+        return await search_hybrid_references(
+            lambda n: self._search_by_vector(
+                query_vector if query_vector is not None else (), character, n
+            ),
+            lambda n: self.search_by_text(query or "", character, n),
+            query_vector,
+            query,
+            limit,
+            self.label,
+        )
+
+    async def _search_by_vector(
         self, query_vector: Sequence[float], character: Character, limit: int
     ) -> list[Reference]:
         passages = await self.corpus.search_by_vector(query_vector, character.id, limit)
+        return [Reference(self.kind, p.text, p.episode_id, p.score) for p in passages]
+
+    async def search_by_text(
+        self, query: str, character: Character, limit: int
+    ) -> list[Reference]:
+        passages = await self.corpus.search_by_text(query, character.id, limit)
         return [Reference(self.kind, p.text, p.episode_id, p.score) for p in passages]
 
     async def embed_missing(self, batch: int, progress: Callable[[int], None]) -> int:
@@ -174,9 +237,9 @@ class StoryReferences:
 
 
 class ReferenceSources:
-    """The reference sources a turn looks references up in, all searched with the same
-    query vector and reranked together; and the story corpus and the work facts, which
-    recalling searches itself."""
+    """The reference sources a turn looks references up in, searched by vector, FTS5,
+    or both fused with RRF and reranked together; and the story corpus and the work facts,
+    which recalling searches itself."""
 
     def __init__(
         self,
@@ -194,19 +257,79 @@ class ReferenceSources:
         self._sources = list(sources)
         self._unsearched = list(unsearched)
 
+    def _matching(self, kinds: Collection[ReferenceKind] | None) -> list[ReferenceSource]:
+        return [s for s in self._sources if kinds is None or s.kind in kinds]
+
     async def candidates(
         self,
-        query_vector: Sequence[float],
+        query_vector: Sequence[float] | None,
         character: Character,
         kinds: Collection[ReferenceKind] | None = None,
+        limit: int = CANDIDATES_PER_SOURCE,
+        query: str | None = None,
     ) -> list[Reference]:
-        """The candidate references for a query embedded with the sources' embedder: as many as
-        `CANDIDATES_PER_SOURCE` of each source's (of `kinds`, or any) nearest it. Raises
-        EmbeddingError if a source's texts not embedded yet cannot be."""
+        """The candidate references for a turn's query: up to `limit` per source (of
+        `kinds`, or any), from vector search (`query_vector`), FTS5 (`query`), or both
+        fused with RRF. Raises EmbeddingError only when vector-only (`query` is empty)
+        and a source's unembedded texts cannot be embedded."""
+        matching = self._matching(kinds)
         found = await asyncio.gather(*(
-            s.search(query_vector, character, CANDIDATES_PER_SOURCE)
-            for s in self._sources
-            if kinds is None or s.kind in kinds
+            s.search(query_vector, character, limit, query=query) for s in matching
+        ))
+        return [r for references in found for r in references]
+
+    async def fts_candidates_by_source(
+        self,
+        character: Character,
+        query: str,
+        limit: int = CANDIDATES_PER_SOURCE * HYBRID_CANDIDATE_MULTIPLIER,
+        kinds: Collection[ReferenceKind] | None = None,
+    ) -> list[list[Reference]]:
+        """Raw FTS5 candidates per matching source (before RRF truncation), for running in
+        parallel with embedding before fusing."""
+        if not query or limit <= 0:
+            return [[] for _ in self._matching(kinds)]
+        return list(await asyncio.gather(*(
+            s.search_by_text(query, character, limit) for s in self._matching(kinds)
+        )))
+
+    async def fuse_with_fts(
+        self,
+        query_vector: Sequence[float] | None,
+        character: Character,
+        fts_by_source: Sequence[Sequence[Reference]],
+        limit: int = CANDIDATES_PER_SOURCE,
+        kinds: Collection[ReferenceKind] | None = None,
+    ) -> list[Reference]:
+        """Search vector candidates (if `query_vector` is given) and fuse per-source with
+        pre-computed `fts_by_source` via RRF, falling back per source to FTS5 if vector
+        search raises `EmbeddingError`."""
+        matching = self._matching(kinds)
+        if query_vector is None:
+            return [
+                ref
+                for fts_refs in fts_by_source
+                for ref in fuse_references([], fts_refs[:limit], limit)
+            ]
+        fetch_limit = limit * HYBRID_CANDIDATE_MULTIPLIER
+
+        async def search_and_fuse(
+            source: ReferenceSource, fts_refs: Sequence[Reference]
+        ) -> list[Reference]:
+            try:
+                vec_refs = await source.search(query_vector, character, fetch_limit)
+            except EmbeddingError:
+                log.warning(
+                    "vector search failed for %s; falling back to FTS5",
+                    source.label,
+                    exc_info=True,
+                )
+                return fuse_references([], fts_refs[:limit], limit)
+            return fuse_references(vec_refs, fts_refs, limit)
+
+        found = await asyncio.gather(*(
+            search_and_fuse(s, fts_refs)
+            for s, fts_refs in zip(matching, fts_by_source, strict=True)
         ))
         return [r for references in found for r in references]
 
@@ -221,13 +344,20 @@ class ReferenceSources:
         return [(candidates[i], score) for i, score in best]
 
     async def rank(
-        self, reranker: Reranker, character: Character, text: str
+        self,
+        reranker: Reranker,
+        character: Character,
+        text: str,
+        fts_text: str | None = None,
     ) -> list[tuple[Reference, float]]:
         """Every candidate reference for `text`, with the reranker's score, best first, as a
         turn needing references finds and reranks them. Raises EmbeddingError or
         RerankError if either service fails."""
         query_vector = await self.embedder.embed_query(text)
-        return await self.rerank(reranker, text, await self.candidates(query_vector, character))
+        candidates = await self.candidates(
+            query_vector, character, query=text if fts_text is None else fts_text
+        )
+        return await self.rerank(reranker, text, candidates)
 
     @property
     def facts(self) -> CharacterFacts | None:
@@ -264,13 +394,13 @@ def open_reference_sources(
     and, given a world setting, the work facts; without one, the work facts are there only
     to be embedded again, which forgets whatever vectors they had. Warns (unless not to
     `warn`) if story passages have no vector from `embedder`'s model, as they cannot be
-    found."""
+    found by vector search."""
     corpus = StoryCorpus(db, embedder)
     if warn and (missing := corpus.missing_vectors_at_open):
         log.warning(
             "%d story passages have no vectors from the embedding model %s and cannot be"
-            " found: run `eidolon reembed` after changing the embedding service, model"
-            " or dimensions",
+            " found by vector search: run `eidolon reembed` after changing the embedding"
+            " service, model or dimensions",
             missing, embedder.model,
         )
     sources: list[ReferenceSource] = [
@@ -305,12 +435,11 @@ class Retrieved:
 
 @dataclass(frozen=True)
 class _Found:
-    """What a turn finds before it knows what it needs: its query embedded, the candidate
-    references and the candidate memories."""
+    """What a turn finds before it knows what it needs: its query embedded (None if
+    embedding failed), the candidate references and the candidate memories."""
 
-    query_vector: list[float]
-    references: list[Reference] | None
-    """None if searching the reference sources failed."""
+    query_vector: list[float] | None
+    references: list[Reference]
     memories: list[Memory]
 
 
@@ -346,8 +475,9 @@ class Retrieval:
         and judge what it does to her affinity, in her `days` if she is in them, and whether
         it asks her for a photo, if asked to."""
         query = memory_query(history, text)
+        fts_text = fts_turn_query(history, text)
         embedding = asyncio.ensure_future(self._embed(query))
-        finding = asyncio.ensure_future(self._find(character, embedding, memory))
+        finding = asyncio.ensure_future(self._find(character, embedding, fts_text, memory))
         looked_up = False
         try:
             judged, asked = None, False
@@ -364,7 +494,9 @@ class Retrieval:
                 looked_up = True
                 if need == "recall":
                     recalling()
-                retrieved = await self._look_up(character, text, query, await finding, memory, need)
+                retrieved = await self._look_up(
+                    character, text, query, fts_text, await finding, memory, need
+                )
         finally:
             for task in (finding, embedding):  # needing nothing, or no longer anything at all
                 task.cancel()
@@ -379,7 +511,7 @@ class Retrieval:
         try:
             return await self._sources.embedder.embed_query(query)
         except EmbeddingError:
-            log.warning("embedding the turn failed; replying without references or memories",
+            log.warning("embedding the turn failed; falling back to FTS5 without memories",
                         exc_info=True)
             return None
 
@@ -387,45 +519,56 @@ class Retrieval:
         self,
         character: Character,
         embedding: "asyncio.Future[list[float] | None]",
+        fts_text: str,
         memory: MemoryTurn | None,
-    ) -> _Found | None:
-        """The candidates for the turn's query, once `embedding` it is done; None if it
-        cannot be embedded."""
-        if (query_vector := await embedding) is None:
-            return None
-        references, memories = await asyncio.gather(
-            self._candidates(character, query_vector), _memory_candidates(memory, query_vector)
+    ) -> _Found:
+        """Search FTS5 in parallel with `embedding`, then search vectors and fuse with RRF
+        (or return FTS5 references alone without memories if embedding failed)."""
+        fts_task = asyncio.ensure_future(
+            self._sources.fts_candidates_by_source(character, fts_text)
         )
-        return _Found(query_vector, references, memories)
-
-    async def _candidates(
-        self, character: Character, query_vector: Sequence[float]
-    ) -> list[Reference] | None:
         try:
-            return await self._sources.candidates(query_vector, character)
-        except EmbeddingError:
-            log.warning("searching the references failed; replying without them", exc_info=True)
-            return None
+            query_vector = await embedding
+            if query_vector is None:
+                references = await self._sources.fuse_with_fts(
+                    None, character, await fts_task
+                )
+                return _Found(None, references, [])
+            async def hybrid_references() -> list[Reference]:
+                return await self._sources.fuse_with_fts(
+                    query_vector, character, await fts_task
+                )
+
+            references, memories = await asyncio.gather(
+                hybrid_references(),
+                _memory_candidates(memory, query_vector),
+            )
+            return _Found(query_vector, references, memories)
+        finally:
+            if not fts_task.done():
+                fts_task.cancel()
 
     async def _look_up(
         self,
         character: Character,
         text: str,
         query: str,
-        found: _Found | None,
+        fts_text: str,
+        found: _Found,
         memory: MemoryTurn | None,
         need: Need,
     ) -> Retrieved:
         """What the turn `need`s (something) of what it found for `query`, `text` and her
         reply before it."""
         if need == "recall":
-            return Retrieved(await self._recall_turn(character, text, query, found), recalled=True)
-        if found is None:
-            return Retrieved(None)
+            return Retrieved(
+                await self._recall_turn(character, text, query, fts_text, found),
+                recalled=True,
+            )
         if need == "memories":
             return Retrieved(None, await _find_memories(memory, query, found.memories))
         references, memories = await asyncio.gather(
-            self._references(query, found.references or []),
+            self._references(query, found.references),
             _find_memories(memory, query, found.memories),
         )
         return Retrieved(self._sources.prompt(references) if references else None, memories)
@@ -443,33 +586,41 @@ class Retrieval:
 
     async def recall_story(self, character: Character, query: str) -> str:
         """The recall-story tool: the episodes `character` is cast in that best match
-        `query`, for the chat model to answer from: what the model wrote, looked up alone."""
+        `query` by hybrid RRF (or FTS5 if embedding fails), for the chat model to answer
+        from: what the model wrote, looked up alone."""
+        fts_task = asyncio.ensure_future(
+            self._sources.fts_candidates_by_source(character, query, kinds=("episode",))
+        )
         try:
-            query_vector = await self._sources.embedder.embed_query(query)
-            story = await self._sources.candidates(query_vector, character, ("episode",))
-        except EmbeddingError:
-            log.warning("recall failed", exc_info=True)
-            return _CANNOT_RECALL
+            try:
+                query_vector: Sequence[float] | None = await self._sources.embedder.embed_query(
+                    query
+                )
+            except EmbeddingError:
+                log.warning(
+                    "embedding recall query failed; falling back to FTS5", exc_info=True
+                )
+                query_vector = None
+            story = await self._sources.fuse_with_fts(
+                query_vector, character, await fts_task, kinds=("episode",)
+            )
+        finally:
+            if not fts_task.done():
+                fts_task.cancel()
         return await self._recall(character, query, query, story, [])
 
     async def _recall_turn(
-        self, character: Character, text: str, query: str, found: _Found | None
+        self,
+        character: Character,
+        text: str,
+        query: str,
+        fts_text: str,
+        found: _Found,
     ) -> str:
         """The recall the judge model sees `text` ask for: the story's candidates for the
-        turn's `query`, and the lives and releases of the work facts nearest it."""
-        if found is None:
-            return _CANNOT_RECALL
-        try:
-            story = (
-                [r for r in found.references if r.kind == "episode"]
-                if found.references is not None
-                # Another source failed: the story's are still to be had.
-                else await self._sources.candidates(found.query_vector, character, ("episode",))
-            )
-            entries = await _search_work(self._sources.work, found.query_vector)
-        except EmbeddingError:
-            log.warning("recall failed", exc_info=True)
-            return _CANNOT_RECALL
+        turn, and the lives and releases of the work facts matching it."""
+        story = [r for r in found.references if r.kind == "episode"]
+        entries = await _search_work(self._sources.work, found.query_vector, fts_text)
         return await self._recall(character, text, query, story, entries)
 
     async def _recall(
@@ -550,10 +701,14 @@ async def _find_memories(
     return await memory.find(query, candidates) if memory else None
 
 
-async def _search_work(work: WorkFacts | None, query_vector: Sequence[float]) -> list[WorldEntry]:
+async def _search_work(
+    work: WorkFacts | None, query_vector: Sequence[float] | None, query: str | None = None
+) -> list[WorldEntry]:
     if work is None:
         return []
-    return await work.search_entries(query_vector, CANDIDATES_PER_SOURCE, RECALL_KINDS)
+    return await work.search_entries(
+        query_vector, CANDIDATES_PER_SOURCE, RECALL_KINDS, query=query
+    )
 
 
 def recall_prompt(

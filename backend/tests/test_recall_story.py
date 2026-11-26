@@ -211,13 +211,14 @@ async def test_a_failed_or_malformed_call_is_answered_and_the_turn_goes_on(
 
     events = await send_turn(client, conversation_id, "公园那次呢？")
 
-    malformed, unknown, failed = tool_results(llm.prompts[-1])
+    malformed, unknown, recalled = tool_results(llm.prompts[-1])
     assert "query" in malformed
     assert "take_selfie" in unknown
-    assert "暂时想不起来" in failed
+    assert "暂时想不起来" not in recalled
+    assert f"真乃：{PARK_LINE}" in recalled
     assert events[-1]["type"] == "done"
     # Every result of the last round says no more tools are coming, the failed ones too.
-    assert all(r.endswith(LAST_ROUND_NOTE) for r in (malformed, unknown, failed))
+    assert all(r.endswith(LAST_ROUND_NOTE) for r in (malformed, unknown, recalled))
 
 
 async def test_the_note_is_never_recorded_or_seen_again_in_later_turns(
@@ -378,3 +379,52 @@ async def test_a_recall_question_about_someone_elses_episode_recalls_nothing(
     system = system_of(llm.prompts[0])
     assert PARK_LINE not in system
     assert "没有想起" in system
+
+
+async def test_prerecall_and_tool_rescue_keywords_past_vector_cap_and_degrade_when_embedding_down(
+    make_client: ClientFactory, settings: Settings
+):
+    from eidolon.corpus import Episode, Line
+    from eidolon.retrieval import CANDIDATES_PER_SOURCE
+    from tests.test_retrieval import _FlatEmbedder
+
+    flat = _FlatEmbedder()
+    async with corpus_in(settings.database_path, flat) as corpus:
+        episodes = [
+            Episode(
+                f"produce_events/{8000 + i}", "培育剧情", "日常", f"练习{i}", frozenset({"mano"}),
+                (Line("真乃", f"今天练习第{i}遍"),),
+            )
+            for i in range(CANDIDATES_PER_SOURCE + 2)
+        ]
+        episodes.append(
+            Episode(
+                "produce_events/8999", "培育剧情", "W.I.N.G.編", "天台", frozenset({"mano"}),
+                (Line("真乃", "天台上的望远镜能看到星星"),),
+            )
+        )
+        await corpus.save(episodes)
+
+    judge, reranker = FakeJudge(answer="recall"), FakeReranker("望远镜", others=0.01)
+    llm = FakeLLM(ANSWER, ANSWER, [recall("天台 望远镜")], ANSWER)
+    client = make_client(llm, retrieval_judge=judge, embedder=flat, reranker=reranker)
+    conversation_id = await start_conversation(client)
+
+    # Pre-recall with flat vectors still surfaces episode #15 via hybrid RRF.
+    await send_turn(client, conversation_id, "那次看星星的望远镜是怎么回事？")
+    assert "真乃：天台上的望远镜能看到星星" in system_of(llm.prompts[-1])
+
+    # Pre-recall with embedding AND reranking both down still recalls top FTS5 episode.
+    flat.down = True
+    reranker.down = True
+    await send_turn(client, conversation_id, "那次天台望远镜是怎么回事？")
+    prerecall_sys = context_of(llm.prompts[-1])
+    assert "暂时想不起来" not in prerecall_sys
+    assert "真乃：天台上的望远镜能看到星星" in prerecall_sys
+
+    # Tool recall with embedding AND reranking both down still recalls top FTS5 episode.
+    judge.answer = "nothing"
+    await send_turn(client, conversation_id, "再说说天台那次")
+    [tool_out] = tool_results(llm.prompts[-1])
+    assert "暂时想不起来" not in tool_out
+    assert "真乃：天台上的望远镜能看到星星" in tool_out

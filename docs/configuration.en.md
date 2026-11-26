@@ -316,7 +316,7 @@ docker compose exec backend eidolon reembed
 ```
 
 - **What it does**: It re-embeds the text already in the database, with no need to re-import episodes. It deletes the old model's vectors only once everything is done.
-- **While it runs**: The service stays up, though retrieval only finds the parts already done. You can interrupt it and rerun it at any time.
+- **While it runs**: The service stays up; vector search only covers the parts already done, while full-text search (FTS5) still covers all stored episodes. You can interrupt it and rerun it at any time.
 - **Reminder**: If the backend finds at startup that the story corpus lacks vectors for the current model, it logs a reminder to run it.
 
 ## Retrieval during conversation
@@ -346,7 +346,7 @@ flowchart LR
 ```
 
 - **No retrieval**: Small talk triggers no retrieval and adds no latency. If the judge errs, retrieval runs anyway.
-- **Needs references**: The episodes she appears in, her character facts, and the work facts all characters share (one entry per song, release and live day) are searched together, reranked with Qwen3-Reranker (`RERANK_MODEL`), and up to 5 sufficiently relevant results go into the prompt. The thresholds are calibrated per reranker model; you can also set them by hand with `RERANK_MIN_RELEVANCE` and `RERANK_MEMORY_MIN_RELEVANCE`.
+- **Needs references**: The episodes she appears in, her character facts, and the work facts all characters share (one entry per song, release and live day) are searched together with hybrid vector + local full-text search, reranked with Qwen3-Reranker (`RERANK_MODEL`), and up to 5 sufficiently relevant results go into the prompt. The thresholds are calibrated per reranker model; you can also set them by hand with `RERANK_MIN_RELEVANCE` and `RERANK_MEMORY_MIN_RELEVANCE`. If embedding fails, references fall back to local full-text search.
 - **Story recall**: For questions like "what happened that time…?", the line itself is used to search the story right away, and related lives and releases are looked up too. If the story corpus has no record of how something went, she is told that this doesn't mean it never happened, so she neither makes it up nor denies it. On other turns, the chat model can call the `recall_story` tool itself, at most one round per line.
 - **Reference files**: Character facts are the Markdown file `facts` points to, one entry per heading. Work facts are generated from `characters/world.json`. Both are embedded on the first search, and afterwards only changed entries are re-embedded; after editing, just restart the backend.
 
@@ -674,6 +674,6 @@ The backend's command line is `eidolon`. Under docker compose, use `docker compo
 | `letter-music upload <dir>` | Upload the music under letters |
 | `stand fetch` / `outfits` / `upload` | The three steps for stand assets, usually chained by `deploy/stand-sync.sh` |
 | `reembed` | Re-embed after switching embedding service, model or dimensions |
-| `eval rerank` / `judge` / `memory` | Calibrate rerank thresholds and judge thresholds, evaluate memory |
+| `eval rerank` / `retrieval` / `judge` / `memory` | Calibrate rerank thresholds, evaluate retrieval recall, calibrate judge thresholds, evaluate memory |
 | `user list` / `ban` / `unban` / `usage` | Manage users |
 | `backup` | Back the database up, encrypted, to a private bucket |

@@ -99,6 +99,9 @@ class NoEmbedder:
     async def embed_query(self, text: str) -> list[float]:
         raise EmbeddingError("没有配置向量化服务")
 
+    async def aclose(self) -> None:
+        pass
+
 
 class SiliconFlowEmbedder:
     """OpenAI-compatible `/embeddings` endpoint. Qwen3-Embedding wants an instruction in

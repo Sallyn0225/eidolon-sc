@@ -1,16 +1,19 @@
-"""The story corpus: episodes the characters can recall, and their vector index.
+"""The story corpus: episodes the characters can recall, and their vector and FTS5 indexes.
 
 Each episode is keyed by its source identifier (the game script it came from), so
 saving the same episode again replaces it. Each episode also records the format it was
 imported from, so an import can leave alone a better version from another. Episodes
-are split into passages of consecutive lines; each passage is embedded and searched
-by cosine similarity, only among the episodes the asking character is in the cast of. Passages whose
+are split into passages of consecutive lines; each passage is embedded for cosine
+similarity search and tokenized into a contentless FTS5 index (`episode_passages_fts`,
+CJK 2-grams + lowercased ASCII words) so both vector similarity and full-text BM25
+search only among the episodes the asking character is in the cast of. Passages whose
 text has not changed keep their vectors, so re-importing costs no embedding calls.
 An episode with no cast is kept but not embedded: no character could recall it.
 
 Each passage keeps one vector, from the embedding model it was last embedded with;
-only passages embedded with the current model are searched. After the model changes,
-`embed_missing` re-embeds the rest from their stored text (`eidolon reembed`).
+only passages embedded with the current model are searched by vector (FTS5 still covers
+all stored passages). After the model changes, `embed_missing` re-embeds the rest from
+their stored text (`eidolon reembed`).
 
 The vectors are searched in memory: every passage's from the current model, read at once
 (`load`, as the server starts) and kept as one matrix, with the rows of each character's
@@ -41,6 +44,7 @@ import numpy as np
 from eidolon.data_access import Closed, Database
 from eidolon.database import by_name
 from eidolon.embedding import Document, Embedder, nearest_rows, to_blob, unit_rows
+from eidolon.text_search import fts_query, index_text
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +79,12 @@ CREATE TABLE IF NOT EXISTS episode_passages (
     embedding BLOB NOT NULL,
     PRIMARY KEY (episode_id, seq)
 );
+CREATE VIRTUAL TABLE IF NOT EXISTS episode_passages_fts USING fts5(
+    tokens,
+    content='',
+    contentless_delete=1,
+    tokenize='unicode61'
+);
 CREATE TABLE IF NOT EXISTS story_corpus_version (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     version INTEGER NOT NULL
@@ -86,6 +96,8 @@ _PASSAGE_CHARS = 1200
 """Roughly how much text goes into one passage before a new one starts."""
 REEMBED_BATCH = 200
 """How many passages (or memories) `eidolon reembed` embeds before committing them."""
+_FTS_BACKFILL_BATCH = 500
+"""How many passages are tokenized per batch when upgrading a pre-FTS5 corpus."""
 
 
 ImportFormat = Literal["csv", "json"]
@@ -165,8 +177,8 @@ class StoryCorpus:
         self._embedder = embedder
         self.missing_vectors_at_open: int = db.prepare(_open, embedder.model)
         """How many passages had no vector from this corpus's embedder as it was opened,
-        and so cannot be found: those embedded before the embedding service, model or
-        dimensions changed."""
+        and so cannot be found by vector search (FTS5 still matches them): those embedded
+        before the embedding service, model or dimensions changed."""
         self._held: _Vectors | None = None
         """The vectors searched, once loaded."""
         self._loading: asyncio.Task[_Vectors] | None = None
@@ -225,7 +237,7 @@ class StoryCorpus:
         return await self._db.read(_catalog, character_id)
 
     async def search(self, query: str, character_id: str, limit: int = 5) -> list[Passage]:
-        """The passages most similar to `query`, from episodes `character_id` appears in."""
+        """The passages most similar to `query` by vector similarity, from episodes `character_id` appears in."""
         return await self.search_by_vector(
             await self._embedder.embed_query(query), character_id, limit
         )
@@ -249,6 +261,19 @@ class StoryCorpus:
             for key, score in best
             if key in texts  # unless removed since
         ]
+
+    async def search_by_text(
+        self, query: str, character_id: str, limit: int = 5
+    ) -> list[Passage]:
+        """The passages most relevant to `query` by FTS5 BM25, from episodes `character_id`
+        is cast in."""
+        if limit <= 0:
+            return []
+        match = fts_query(query)
+        if match is None:
+            return []
+        rows = await self._db.read(_search_by_text, match, character_id, limit)
+        return [Passage(episode_id, text, score) for episode_id, text, score in rows]
 
     async def load(self) -> None:
         """Load the vectors to search now, as they are in the corpus, waiting for it: as
@@ -318,13 +343,44 @@ class StoryCorpus:
 def _open(db: sqlite3.Connection, model: str) -> int:
     """Make the tables, or bring them up to date; how many passages have no vector from
     `model`."""
+    fts_sql = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'episode_passages_fts'"
+    ).fetchone()
+    # Contentless FTS5 with detail='column' returns 0.0 for bm25(); rebuild once with default detail='full'.
+    if fts_sql is not None and "detail='column'" in fts_sql[0].lower().replace('"', "'").replace(" ", ""):
+        db.execute("DROP TABLE episode_passages_fts")
     db.executescript(_SCHEMA)
     columns = {r["name"] for r in by_name(db).execute("PRAGMA table_info(episodes)")}
     if "imported_from" not in columns:  # corpora from before JSON import were all CSV
         db.execute("ALTER TABLE episodes ADD COLUMN imported_from TEXT NOT NULL DEFAULT 'csv'")
+    if not db.in_transaction:
+        db.execute("BEGIN IMMEDIATE")
+    has_passages = db.execute("SELECT 1 FROM episode_passages LIMIT 1").fetchone() is not None
+    has_fts = db.execute("SELECT 1 FROM episode_passages_fts LIMIT 1").fetchone() is not None
+    if has_passages and not has_fts:
+        _backfill_fts(db)
     return db.execute(
         "SELECT count(*) FROM episode_passages WHERE model != ?", (model,)
     ).fetchone()[0]
+
+
+def _backfill_fts(db: sqlite3.Connection) -> None:
+    """Populate ``episode_passages_fts`` from existing passages in batches."""
+    started = time.monotonic()
+    cursor = db.cursor()
+    cursor.execute("SELECT rowid, text FROM episode_passages ORDER BY rowid")
+    total = 0
+    while batch := cursor.fetchmany(_FTS_BACKFILL_BATCH):
+        db.executemany(
+            "INSERT INTO episode_passages_fts (rowid, tokens) VALUES (?, ?)",
+            [(rowid, index_text(text)) for rowid, text in batch],
+        )
+        total += len(batch)
+    log.info(
+        "story FTS5 index built: %d passages in %.0f ms",
+        total,
+        (time.monotonic() - started) * 1000,
+    )
 
 
 def _save(
@@ -366,6 +422,14 @@ def _save(
                 for i, text in enumerate(passages[episode.id])
             ],
         )
+        inserted = db.execute(
+            "SELECT rowid, text FROM episode_passages WHERE episode_id = ?", (episode.id,)
+        ).fetchall()
+        if inserted:
+            db.executemany(
+                "INSERT INTO episode_passages_fts (rowid, tokens) VALUES (?, ?)",
+                [(rowid, index_text(text)) for rowid, text in inserted],
+            )
     _changed(db)
 
 
@@ -533,8 +597,28 @@ def _known_vectors(
     return known
 
 
+def _search_by_text(
+    db: sqlite3.Connection, match: str, character_id: str, limit: int
+) -> list[tuple[str, str, float]]:
+    return db.execute(
+        "SELECT p.episode_id, p.text, 0.0 - bm25(episode_passages_fts)"
+        " FROM episode_passages_fts"
+        " JOIN episode_passages p ON p.rowid = episode_passages_fts.rowid"
+        " JOIN episode_cast c ON c.episode_id = p.episode_id"
+        " WHERE episode_passages_fts MATCH ? AND c.character_id = ?"
+        " ORDER BY bm25(episode_passages_fts)"
+        " LIMIT ?",
+        (match, character_id, limit),
+    ).fetchall()
+
+
 def _delete(db: sqlite3.Connection, episode_id: str) -> bool:
-    """Its cast, lines and passages go with it (ON DELETE CASCADE)."""
+    """Its cast, lines, passages and their FTS entries go with it."""
+    rowids = db.execute(
+        "SELECT rowid FROM episode_passages WHERE episode_id = ?", (episode_id,)
+    ).fetchall()
+    if rowids:
+        db.executemany("DELETE FROM episode_passages_fts WHERE rowid = ?", rowids)
     return db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,)).rowcount > 0
 
 

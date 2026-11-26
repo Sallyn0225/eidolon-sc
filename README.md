@@ -281,7 +281,7 @@ npm run build && BACKEND_URL=http://localhost:8000 npm run start   # 启动在 :
 eidolon-sc/
 ├── backend/          # Python 后端：FastAPI + Pipecat；对话引擎、通话、检索、记忆、同步与命令行（eidolon）
 │   ├── src/eidolon/
-│   ├── eval/         #   重排、判断模型和记忆的评测集（只含问题与标注，不含剧情原文）
+│   ├── eval/         #   召回、重排、判断模型和记忆的评测集（只含问题与标注，不含剧情原文）
 │   └── tests/
 ├── frontend/         # Next.js 前端：落地页、对话、通话层、设置、后台
 ├── characters/       # 角色配置、人设、资料、头像、读音表、世界设定

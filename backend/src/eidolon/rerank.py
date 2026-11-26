@@ -47,6 +47,11 @@ KNOWN_THRESHOLDS: dict[str, RerankThresholds] = {
     # stays. What her reply lets in besides is the rest of its topic (the other bento, other
     # illumination STARS events) above 0.9, and, when the user changes the subject, the old
     # one (the owl episodes when asked her birthday) at 0.99: no threshold separates either.
+    # Checked again with hybrid RRF + FTS5 retrieval on the expanded 80-case set (2026-11-26;
+    # 64 reference cases, 96/101 relevant items recalled vs 87/101 vector-only): 91/96 relevant
+    # candidates clear 0.3 (median 0.9978, p10 0.5404) while 332/1993 irrelevant clear it
+    # (median 0.0020, mostly same-topic or follow-up spillover as before), and 12/15 memories
+    # clear 0.01 (1/158 irrelevant), so 0.3 / 0.01 stay.
     "Qwen/Qwen3-Reranker-0.6B": RerankThresholds(references=0.3, memories=0.01),
     # From the same set. 4B scores near misses (another year's Christmas, another bento)
     # between 0.4 and 0.7 where 0.6B puts them below 0.3, so it needs a higher bar for the
@@ -54,6 +59,10 @@ KNOWN_THRESHOLDS: dict[str, RerankThresholds] = {
     # loosely worded remarks a little higher than 0.6B, so its memory threshold is lower.
     # With her previous reply (2026-10-14) the short follow-ups' relevant candidates all score
     # 0.83 or more, so 0.7 stays; the rest of the topic and an old one get in as with 0.6B.
+    # Checked again with hybrid RRF + FTS5 retrieval on the expanded 80-case set (2026-11-26):
+    # 85/96 relevant candidates clear 0.7 (median 0.9966, p10 0.6169), 259/1995 irrelevant clear
+    # it (median 0.0056, p90 0.8357), and 14/15 memories clear 0.005 (2/158 irrelevant), so
+    # 0.7 / 0.005 stay.
     "Qwen/Qwen3-Reranker-4B": RerankThresholds(references=0.7, memories=0.005),
 }
 FALLBACK_MODEL = "Qwen/Qwen3-Reranker-4B"

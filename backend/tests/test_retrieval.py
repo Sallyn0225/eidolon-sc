@@ -241,16 +241,29 @@ async def test_retrieval_goes_ahead_when_jev_is_down(
     assert PARK_LINE in system
 
 
-async def test_a_turn_still_gets_a_reply_when_retrieval_fails(
+async def test_when_embedding_fails_references_still_come_via_fts_without_memories(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
+    judge, reranker, llm = FakeJudge(answer="nothing"), FakeReranker(PARK_LINE), FakeLLM(REPLY, REPLY, REPLY)
+    client = make_client(
+        llm, retrieval_judge=judge, embedder=embedder, reranker=reranker,
+        background_llm=FakeBackgroundLLM(memorized(CAT)),
+    )
+    await tell_of_the_cat(client)
+    judge.answer = "references"
     embedder.down = True
-    llm = FakeLLM(REPLY)
-    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker())
 
     system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
 
-    assert "# 回忆与资料" not in system
+    assert PARK_LINE in system[system.index("# 回忆与资料") :]
+    assert "# 关于制作人的记忆" not in system and CAT not in system
+
+    # If reranking fails alongside embedding, top FTS5 references still go in.
+    reranker.down = True
+    fallback_system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
+    assert 1 <= reference_count(fallback_system) <= FALLBACK_REFERENCES
+    assert PARK_LINE in fallback_system[fallback_system.index("# 回忆与资料") :]
+    assert "# 关于制作人的记忆" not in fallback_system and CAT not in fallback_system
 
 
 async def test_with_the_reranker_down_the_nearest_references_are_brought_but_no_memories(
@@ -372,3 +385,91 @@ async def test_a_recall_question_is_recalled_though_her_facts_cannot_be_embedded
 
     assert "培育剧情 / W.I.N.G.編 /「公園の歌声」" in system
     assert f"真乃：{PARK_LINE}" in system
+
+
+class _FlatEmbedder(FakeEmbedder):
+    """Returns identical vectors for every text so vector search cannot tell items apart."""
+
+    def _vector(self, text: str) -> list[float]:
+        return [1.0, 0.0]
+
+
+async def test_hybrid_rrf_rescues_keyword_matches_past_vector_cap_and_orders_rerank_fallback(
+    make_client: ClientFactory, characters: CharacterConfig, settings: Settings
+):
+    from eidolon.corpus import Episode, Line
+    from eidolon.retrieval import CANDIDATES_PER_SOURCE
+
+    filler = "\n".join(
+        f"# 笔记{i}\n## 杂记{i}\n今天练习了发声第{i}次。" for i in range(CANDIDATES_PER_SOURCE + 2)
+    )
+    characters.write("facts/mano.md", filler + "\n# 鸟\n## ピーちゃん\n常和真乃在一起的鸽子。\n# 档案\n## 风野灯织\nillumination STARS 的伙伴。\n")
+    flat = _FlatEmbedder()
+    async with corpus_in(settings.database_path, flat) as corpus:
+        load_characters(settings.characters_path)
+        episodes = [
+            Episode(
+                f"produce_events/{9000 + i}", "培育剧情", "日常", f"练习{i}", frozenset({"mano"}),
+                (Line("真乃", f"今天练习第{i}遍"),),
+            )
+            for i in range(CANDIDATES_PER_SOURCE + 2)
+        ]
+        episodes.append(
+            Episode(
+                "produce_events/9999", "培育剧情", "W.I.N.G.編", "天台", frozenset({"mano"}),
+                (Line("真乃", "天台上的望远镜能看到星星"),),
+            )
+        )
+        await corpus.save(episodes)
+
+    reranker = FakeReranker("望远镜", others=0.01)
+    llm = FakeLLM(REPLY, REPLY)
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=flat, reranker=reranker)
+
+    # Pure vector top-12 with constant vectors would miss item #15, yet hybrid RRF sends it to reranker.
+    system = await system_prompt(client, llm, "望远镜和ピーちゃん")
+    assert "天台上的望远镜能看到星星" in system[system.index("# 回忆与资料") :]
+
+    # With reranker down, RRF score picks both FTS-boosted items ahead of unboosted fillers.
+    reranker.down = True
+    fallback = await system_prompt(client, llm, "望远镜和ピーちゃん")
+    refs = fallback[fallback.index("# 回忆与资料") :]
+    assert "天台上的望远镜能看到星星" in refs
+    assert "常和真乃在一起的鸽子。" in refs
+
+
+async def test_fts_routes_short_followups_with_previous_reply_without_diluting_noun_queries(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    from eidolon.retrieval import FTS_MIN_STANDALONE_TOKENS
+    from eidolon.text_search import query_tokens
+
+    assert len(query_tokens("那时候累吗？")) < FTS_MIN_STANDALONE_TOKENS
+    assert len(query_tokens("灯織ちゃんは元気？")) >= FTS_MIN_STANDALONE_TOKENS
+
+    jev, reranker = FakeJudge(answer="nothing"), FakeReranker("鳩")
+    llm = FakeLLM(
+        ["<ja>公園で鳩と歌った日ですね</ja><zh>是和鳩一起在公园唱歌的那天吧</zh>"],
+        REPLY,
+        REPLY,
+    )
+    client = make_client(llm, retrieval_judge=jev, embedder=embedder, reranker=reranker)
+    conversation_id = await start_conversation(client)
+    await send_turn(client, conversation_id, "还记得那天吗？")
+
+    # Force FTS-only via EmbeddingError to observe exact FTS query routing.
+    jev.answer = "references"
+    embedder.down = True
+
+    await send_turn(client, conversation_id, "那时候累吗？")
+    _, followup_candidates = reranker.calls[-1]
+    assert any(PARK_LINE in c for c in followup_candidates)
+    assert any("真乃常去公园看鸟。" in c for c in followup_candidates)
+
+    # Normal noun query is NOT diluted by "公园" / "鳩" in previous reply.
+    reranker.prefer = "風野灯織"
+    await send_turn(client, conversation_id, "灯織ちゃんは元気？")
+    _, noun_candidates = reranker.calls[-1]
+    assert any("風野灯織" in c for c in noun_candidates)
+    assert not any(PARK_LINE in c for c in noun_candidates)
+    assert not any("真乃常去公园看鸟。" in c for c in noun_candidates)

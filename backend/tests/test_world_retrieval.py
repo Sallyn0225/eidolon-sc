@@ -206,7 +206,7 @@ async def test_recalling_a_live_brings_its_days_even_when_no_episode_tells_it(
 
     recalled = section(system, "# 回顾剧情")
     days = entries(recalled)
-    assert [d.split("\n")[1] for d in days] == ["日期：2024年3月2日", "日期：2024年3月3日"]
+    assert sorted(d.split("\n")[1] for d in days) == ["日期：2024年3月2日", "日期：2024年3月3日"]
     assert "没有经历过" not in system
     assert not any(cv in system for cv in CVS)
     # The episodes and the work facts are reranked together, once, the query embedded once.
@@ -339,3 +339,28 @@ async def test_the_work_facts_are_embedded_once_however_many_turns_search_them(
 
     songs = [d for d in embedder.documents[before:] if d.startswith("歌曲")]
     assert len(songs) == 9
+
+
+async def test_recalling_work_facts_uses_hybrid_rrf_and_degrades_to_fts_when_embedding_fails(
+    make_client: ClientFactory, story: Path
+):
+    from tests.test_retrieval import _FlatEmbedder
+
+    # With flat vectors + reranker down, RRF selects the keyword-matched live day over earlier ones.
+    flat = _FlatEmbedder()
+    reranker, llm = FakeReranker("ベルーナドーム", others=0.01), FakeLLM(ANSWER, ANSWER, ANSWER)
+    reranker.down = True
+    client = make_client(llm, retrieval_judge=FakeJudge(answer="recall"), embedder=flat, reranker=reranker)
+
+    rrf_sys = await system_prompt(client, llm, "ベルーナドームのライブ、どうだった？")
+    assert any("ベルーナドーム" in e for e in entries(section(rrf_sys, "# 回顾剧情")))
+
+    # When embedding fails too, FTS5 still brings the matching live days (both with reranker and fallback).
+    flat.down = True
+    reranker.down = False
+    fts_sys = await system_prompt(client, llm, "ドームのライブ、どうだった？")
+    assert any("ベルーナドーム" in e for e in entries(section(fts_sys, "# 回顾剧情")))
+
+    reranker.down = True
+    fts_fb_sys = await system_prompt(client, llm, "ベルーナドームのライブ、どうだった？")
+    assert any("ベルーナドーム" in e for e in entries(section(fts_fb_sys, "# 回顾剧情")))
