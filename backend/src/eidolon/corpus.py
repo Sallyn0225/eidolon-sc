@@ -41,6 +41,7 @@ import numpy as np
 from eidolon.data_access import Closed, Database
 from eidolon.database import by_name
 from eidolon.embedding import Document, Embedder, nearest_rows, to_blob, unit_rows
+from eidolon.text_search import fts_query, index_text
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +76,13 @@ CREATE TABLE IF NOT EXISTS episode_passages (
     embedding BLOB NOT NULL,
     PRIMARY KEY (episode_id, seq)
 );
+CREATE VIRTUAL TABLE IF NOT EXISTS episode_passages_fts USING fts5(
+    tokens,
+    content='',
+    contentless_delete=1,
+    tokenize='unicode61',
+    detail='column'
+);
 CREATE TABLE IF NOT EXISTS story_corpus_version (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     version INTEGER NOT NULL
@@ -86,6 +94,8 @@ _PASSAGE_CHARS = 1200
 """Roughly how much text goes into one passage before a new one starts."""
 REEMBED_BATCH = 200
 """How many passages (or memories) `eidolon reembed` embeds before committing them."""
+_FTS_BACKFILL_BATCH = 500
+"""How many passages are tokenized per batch when upgrading a pre-FTS5 corpus."""
 
 
 ImportFormat = Literal["csv", "json"]
@@ -250,6 +260,19 @@ class StoryCorpus:
             if key in texts  # unless removed since
         ]
 
+    async def search_by_text(
+        self, query: str, character_id: str, limit: int = 5
+    ) -> list[Passage]:
+        """The passages most relevant to `query` by FTS5 BM25, from episodes `character_id`
+        is cast in."""
+        if limit <= 0:
+            return []
+        match = fts_query(query)
+        if match is None:
+            return []
+        rows = await self._db.read(_search_by_text, match, character_id, limit)
+        return [Passage(episode_id, text, score) for episode_id, text, score in rows]
+
     async def load(self) -> None:
         """Load the vectors to search now, as they are in the corpus, waiting for it: as
         the server starts, so that its first search need not."""
@@ -322,9 +345,34 @@ def _open(db: sqlite3.Connection, model: str) -> int:
     columns = {r["name"] for r in by_name(db).execute("PRAGMA table_info(episodes)")}
     if "imported_from" not in columns:  # corpora from before JSON import were all CSV
         db.execute("ALTER TABLE episodes ADD COLUMN imported_from TEXT NOT NULL DEFAULT 'csv'")
+    if not db.in_transaction:
+        db.execute("BEGIN IMMEDIATE")
+    has_passages = db.execute("SELECT 1 FROM episode_passages LIMIT 1").fetchone() is not None
+    has_fts = db.execute("SELECT 1 FROM episode_passages_fts LIMIT 1").fetchone() is not None
+    if has_passages and not has_fts:
+        _backfill_fts(db)
     return db.execute(
         "SELECT count(*) FROM episode_passages WHERE model != ?", (model,)
     ).fetchone()[0]
+
+
+def _backfill_fts(db: sqlite3.Connection) -> None:
+    """Populate ``episode_passages_fts`` from existing passages in batches."""
+    started = time.monotonic()
+    cursor = db.cursor()
+    cursor.execute("SELECT rowid, text FROM episode_passages ORDER BY rowid")
+    total = 0
+    while batch := cursor.fetchmany(_FTS_BACKFILL_BATCH):
+        db.executemany(
+            "INSERT INTO episode_passages_fts (rowid, tokens) VALUES (?, ?)",
+            [(rowid, index_text(text)) for rowid, text in batch],
+        )
+        total += len(batch)
+    log.info(
+        "story FTS5 index built: %d passages in %.0f ms",
+        total,
+        (time.monotonic() - started) * 1000,
+    )
 
 
 def _save(
@@ -366,6 +414,14 @@ def _save(
                 for i, text in enumerate(passages[episode.id])
             ],
         )
+        inserted = db.execute(
+            "SELECT rowid, text FROM episode_passages WHERE episode_id = ?", (episode.id,)
+        ).fetchall()
+        if inserted:
+            db.executemany(
+                "INSERT INTO episode_passages_fts (rowid, tokens) VALUES (?, ?)",
+                [(rowid, index_text(text)) for rowid, text in inserted],
+            )
     _changed(db)
 
 
@@ -533,8 +589,28 @@ def _known_vectors(
     return known
 
 
+def _search_by_text(
+    db: sqlite3.Connection, match: str, character_id: str, limit: int
+) -> list[tuple[str, str, float]]:
+    return db.execute(
+        "SELECT p.episode_id, p.text, 0.0 - bm25(episode_passages_fts)"
+        " FROM episode_passages_fts"
+        " JOIN episode_passages p ON p.rowid = episode_passages_fts.rowid"
+        " JOIN episode_cast c ON c.episode_id = p.episode_id"
+        " WHERE episode_passages_fts MATCH ? AND c.character_id = ?"
+        " ORDER BY bm25(episode_passages_fts)"
+        " LIMIT ?",
+        (match, character_id, limit),
+    ).fetchall()
+
+
 def _delete(db: sqlite3.Connection, episode_id: str) -> bool:
-    """Its cast, lines and passages go with it (ON DELETE CASCADE)."""
+    """Its cast, lines, passages and their FTS entries go with it."""
+    rowids = db.execute(
+        "SELECT rowid FROM episode_passages WHERE episode_id = ?", (episode_id,)
+    ).fetchall()
+    if rowids:
+        db.executemany("DELETE FROM episode_passages_fts WHERE rowid = ?", rowids)
     return db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,)).rowcount > 0
 
 

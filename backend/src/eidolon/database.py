@@ -96,6 +96,9 @@ for each deleted user, the same for all their rows, so that they still count as 
 NOT_USER_DATA = frozenset(
     {
         "episodes", "episode_cast", "episode_lines", "episode_passages",
+        "episode_passages_fts", "episode_passages_fts_data",
+        "episode_passages_fts_idx", "episode_passages_fts_docsize",
+        "episode_passages_fts_config",
         "story_corpus_version", "embedded_texts",
         "service_calls", "config_overrides", "price_overrides", "price_catalog",
         "price_catalog_thinking", "price_catalog_hosts", "price_catalog_providers",
@@ -149,6 +152,12 @@ def read_only(path: Path, timeout: float = 5.0) -> sqlite3.Connection:
     access layer so as to wait on no write task, making no database where there is none;
     raises sqlite3.Error if it cannot be opened."""
     return sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=timeout)
+
+
+def memory() -> sqlite3.Connection:
+    """An in-memory SQLite connection usable across worker threads (caller serializes
+    access)."""
+    return sqlite3.connect(":memory:", check_same_thread=False)
 
 
 def readable(path: Path) -> bool:

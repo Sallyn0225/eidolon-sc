@@ -3,18 +3,26 @@ TypeSafe's System One endpoint (OpenRouter's by default), and how Jev is configu
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 import pytest
 
-from eidolon.characters import Character
+from eidolon.characters import Character, Fact
 from eidolon.config import JevSettings, Settings
+from eidolon.data_access import Database
+from eidolon.facts import CharacterFacts
 from eidolon.producer import Birthday
 from eidolon.rerank import RerankError, SiliconFlowReranker
 from eidolon.judge import JevJudge, JudgeError
 from eidolon.retrieval import ModelRetrievalJudge
 from eidolon.store import Message
+from eidolon.work_facts import WorkFacts
+from eidolon.world import load_world, world_path
+from tests.conftest import MANO_SHEET, CharacterConfig
+from tests.fakes import FakeEmbedder
 from tests.test_embedding import HANG, Answer, scripted
+from tests.test_world_setting import write_world
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -229,3 +237,71 @@ def test_the_old_gateway_key_alone_stops_the_start(monkeypatch: pytest.MonkeyPat
 
     with pytest.raises(RuntimeError, match="AI_GATEWAY_API_KEY.*JEV_API_KEY"):
         Settings.from_env()
+
+
+async def test_character_facts_fts_finds_title_keywords_and_reflects_restart_updates(
+    tmp_path: Path,
+):
+    mano = Character(
+        "mano", "櫻木真乃", "", "voice", "sheet", None, "#ffbad6", Birthday(4, 25), 16,
+        facts=(
+            Fact("人物关系 / 風野灯織", "同组合的伙伴，性格认真。"),
+            Fact("爱好", "喜欢在公园看鸽子。"),
+        ),
+    )
+    empty_char = Character(
+        "kogane", "月岡恋鐘", "", "voice", "sheet", None, "#f84cad", Birthday(2, 25), 19,
+    )
+    db = Database(tmp_path / "eidolon.db")
+    try:
+        facts = CharacterFacts(db, FakeEmbedder(), [mano, empty_char])
+        hits = await facts.search_by_text("風野灯織", mano, limit=3)
+        assert [ref.origin for ref in hits] == ["人物关系 / 風野灯織"]
+        assert hits[0].kind == "fact"
+        assert await facts.search_by_text("的 了", mano, limit=3) == []
+        assert await facts.search_by_text("風野灯織", empty_char, limit=3) == []
+
+        updated = Character(
+            "mano", "櫻木真乃", "", "voice", "sheet", None, "#ffbad6", Birthday(4, 25), 16,
+            facts=(Fact("兴趣 / 天文观测", "夜里喜欢看星星。"),),
+        )
+        restarted = CharacterFacts(db, FakeEmbedder(), [updated])
+        assert [ref.origin for ref in await restarted.search_by_text("天文观测", updated, limit=3)] == [
+            "兴趣 / 天文观测"
+        ]
+        assert await restarted.search_by_text("風野灯織", updated, limit=3) == []
+    finally:
+        await db.close()
+
+
+async def test_work_facts_fts_filters_by_kinds_and_reflects_updated_world(tmp_path: Path):
+    config = CharacterConfig(tmp_path / "characters").add("mano", "櫻木真乃", MANO_SHEET)
+    write_world(config)
+    db = Database(tmp_path / "eidolon.db")
+    try:
+        work = WorkFacts(db, FakeEmbedder(), load_world(world_path(config.path)))
+
+        refs = await work.search_by_text("ヒカリのdestination", MANO, limit=5)
+        assert refs and all(ref.kind == "work" for ref in refs)
+
+        entries = await work.search_entries_by_text(
+            "ヒカリのdestination", limit=10, kinds=("live", "release")
+        )
+        assert entries and all(e.kind in {"live", "release"} for e in entries)
+        assert any(e.kind == "release" for e in entries)
+        assert await work.search_entries_by_text("ヒカリ", limit=5, kinds=()) == []
+        assert await WorkFacts(db, FakeEmbedder(), None).search_by_text("ヒカリ", MANO, limit=5) == []
+
+        world_file = world_path(config.path)
+        data = json.loads(world_file.read_text(encoding="utf-8"))
+        [forest] = [s for s in data["songs"] if s["title"] == "MAGICAL FOREST"]
+        forest["title"] = "STARLIGHT ORCHESTRA"
+        world_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        restarted = WorkFacts(db, FakeEmbedder(), load_world(world_file))
+        found = await restarted.search_entries_by_text("STARLIGHT ORCHESTRA", limit=5)
+        assert found and found[0].title == "歌曲「STARLIGHT ORCHESTRA」"
+        assert await restarted.search_entries_by_text("MAGICAL", limit=5, kinds=("song",)) == []
+    finally:
+        await db.close()
+

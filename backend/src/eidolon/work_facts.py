@@ -10,6 +10,7 @@ As a reference source they are searched whatever they are about; recalling how s
 went searches them itself (`search_entries`), for the lives and releases only.
 """
 
+import asyncio
 from collections.abc import Callable, Collection, Sequence
 
 from eidolon.characters import Character
@@ -18,6 +19,7 @@ from eidolon.data_access import Database
 from eidolon.embedded_texts import WORK_SCOPE, EmbeddedTexts
 from eidolon.embedding import Document, Embedder
 from eidolon.references import Reference, ReferenceKind
+from eidolon.text_search import MemoryFtsIndex, fts_query, titled_text
 from eidolon.world import EntryKind, World, WorldEntry
 
 WORK_RULE = "作品资料里只有名称、日期、会场、出演者这类事实，没有台上或当时具体发生了什么，不要编造。"
@@ -40,6 +42,8 @@ class WorkFacts:
         self._texts = EmbeddedTexts(db, embedder)
         self._entries = list({e.text: e for e in (world.entries() if world else [])}.values())
         self._documents = [Document(e.text, e.title) for e in self._entries]
+        self._fts: MemoryFtsIndex | None = None
+        self._fts_lock = asyncio.Lock()
 
     async def search(
         self, query_vector: Sequence[float], character: Character, limit: int
@@ -47,6 +51,15 @@ class WorkFacts:
         return [
             Reference(self.kind, e.text, e.title, similarity)
             for e, similarity in await self._nearest(query_vector, limit)
+        ]
+
+    async def search_by_text(
+        self, query: str, character: Character, limit: int
+    ) -> list[Reference]:
+        """The work facts most relevant to `query` by FTS5 BM25."""
+        return [
+            Reference(self.kind, e.text, e.title, score)
+            for e, score in await self._nearest_by_text(query, limit)
         ]
 
     async def search_entries(
@@ -59,6 +72,15 @@ class WorkFacts:
         source's embedder, best first."""
         return [e for e, _ in await self._nearest(query_vector, limit, kinds)]
 
+    async def search_entries_by_text(
+        self,
+        query: str,
+        limit: int,
+        kinds: Collection[EntryKind] | None = None,
+    ) -> list[WorldEntry]:
+        """The entries (of `kinds`, or any) most relevant to `query` by FTS5 BM25."""
+        return [e for e, _ in await self._nearest_by_text(query, limit, kinds)]
+
     async def _nearest(
         self,
         query_vector: Sequence[float],
@@ -69,6 +91,31 @@ class WorkFacts:
         among = [i for i, e in enumerate(self._entries) if kinds is None or e.kind in kinds]
         best = await self._texts.search(WORK_SCOPE, self._documents, query_vector, limit, among)
         return [(self._entries[i], similarity) for i, similarity in best]
+
+    async def _nearest_by_text(
+        self,
+        query: str,
+        limit: int,
+        kinds: Collection[EntryKind] | None = None,
+    ) -> list[tuple[WorldEntry, float]]:
+        if (
+            not self._entries
+            or limit <= 0
+            or (kinds is not None and not kinds)
+            or fts_query(query) is None
+        ):
+            return []
+        index = await self._fts_index()
+        best = await asyncio.to_thread(index.search, query, limit, kinds)
+        return [(self._entries[i], score) for i, score in best]
+
+    async def _fts_index(self) -> MemoryFtsIndex:
+        async with self._fts_lock:
+            if self._fts is None:
+                texts = [titled_text(e.title, e.text) for e in self._entries]
+                kinds = [e.kind for e in self._entries]
+                self._fts = await asyncio.to_thread(MemoryFtsIndex, texts, kinds)
+            return self._fts
 
     async def embed_missing(
         self, batch: int = REEMBED_BATCH, progress: Callable[[int], None] | None = None

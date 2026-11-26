@@ -6,6 +6,7 @@ a fact is edited or removed, so an edit to a facts file takes effect after a res
 without any command and costs only the changed entries.
 """
 
+import asyncio
 from collections.abc import Callable, Iterable, Sequence
 
 from eidolon.characters import Character, Fact
@@ -14,6 +15,7 @@ from eidolon.data_access import Database
 from eidolon.embedded_texts import CHARACTER_SCOPES, EmbeddedTexts, character_scope
 from eidolon.embedding import Document, Embedder
 from eidolon.references import Reference, ReferenceKind
+from eidolon.text_search import MemoryFtsIndex, fts_query, titled_text
 
 
 class CharacterFacts:
@@ -26,6 +28,8 @@ class CharacterFacts:
     def __init__(self, db: Database, embedder: Embedder, characters: Iterable[Character]) -> None:
         self._texts = EmbeddedTexts(db, embedder)
         self._characters = list(characters)
+        self._fts: dict[str, MemoryFtsIndex] = {}
+        self._fts_locks: dict[str, asyncio.Lock] = {}
 
     async def search(
         self, query_vector: Sequence[float], character: Character, limit: int
@@ -38,6 +42,29 @@ class CharacterFacts:
             Reference(self.kind, facts[i].text, facts[i].title or facts[i].text, similarity)
             for i, similarity in best
         ]
+
+    async def search_by_text(
+        self, query: str, character: Character, limit: int
+    ) -> list[Reference]:
+        """The character's facts most relevant to `query` by FTS5 BM25."""
+        facts = _facts(character)
+        if not facts or limit <= 0 or fts_query(query) is None:
+            return []
+        index = await self._fts_index(character, facts)
+        best = await asyncio.to_thread(index.search, query, limit)
+        return [
+            Reference(self.kind, facts[i].text, facts[i].title or facts[i].text, score)
+            for i, score in best
+        ]
+
+    async def _fts_index(self, character: Character, facts: Sequence[Fact]) -> MemoryFtsIndex:
+        async with self._fts_locks.setdefault(character.id, asyncio.Lock()):
+            if (index := self._fts.get(character.id)) is not None:
+                return index
+            texts = [titled_text(f.title, f.text) for f in facts]
+            index = await asyncio.to_thread(MemoryFtsIndex, texts)
+            self._fts[character.id] = index
+            return index
 
     async def embed_missing(
         self, batch: int = REEMBED_BATCH, progress: Callable[[int], None] | None = None

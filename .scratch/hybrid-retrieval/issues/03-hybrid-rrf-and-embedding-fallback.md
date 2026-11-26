@@ -41,3 +41,8 @@
 ### 票 01 交接
 
 - `backend/src/eidolon/retrieval_eval.py` 的 `validate_retrieval_options` 与 `evaluate_retrieval` 已为 `--mode fts|hybrid` 留好接缝，目前仅放行 `vector`（`fts` / `hybrid` 抛出 `RetrievalEvalError`）。本票接入三源混合召回与 FTS5 查询串分流后，直接放开这两种模式并复用与真实回合一致的检索逻辑；同时注意 `--mode fts` 时不要求 `EmbeddingSettings`（无需向量化客户端）。
+
+### 票 02 交接
+
+- `StoryCorpus.search_by_text`、`CharacterFacts.search_by_text` 与 `WorkFacts.search_by_text` / `search_entries_by_text` 均已就绪，返回的 `score` / `similarity` 已取 `0.0 - bm25(...)`（正值，越大越相关）；多路合并请调用 `text_search.rrf_fuse` 并传入各自去重键。
+- 重要细节（来自票 02 Spec 审查）：在当前 CJK 2-gram + `STOPWORDS` 下，规格示例短追问「那时候累吗」会产生 3 个查询 token（`["那时", "候累", "累吗"]`），而 `spec.md` 初值阈值是 `< 2`。票 03 实现短追问分流时请结合 `query_tokens(text)` 实测（并在测试和票 04 调参中关注 2-gram 跨边界切词对短追问有效 token 计数的影响，如按需将阈值设为常量供票 04 校准，或评估在短追问判断上是否需考虑字数/有效词数）。
