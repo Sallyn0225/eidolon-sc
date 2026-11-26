@@ -305,3 +305,78 @@ async def test_work_facts_fts_filters_by_kinds_and_reflects_updated_world(tmp_pa
     finally:
         await db.close()
 
+
+async def test_sources_fuse_vector_and_fts_via_rrf_and_preserve_distinct_passages(tmp_path: Path):
+    from eidolon.corpus import Episode, Line
+    from eidolon.retrieval import open_reference_sources
+    from eidolon.text_search import RRF_K
+
+    mano = Character(
+        "mano", "櫻木真乃", "", "voice", "sheet", None, "#ffbad6", Birthday(4, 25), 16,
+        facts=(
+            Fact("爱好", "喜欢在天台看星星。"),
+            Fact("日常", "经常去买草莓大福。"),
+        ),
+    )
+    config = CharacterConfig(tmp_path / "characters").add("mano", "櫻木真乃", MANO_SHEET)
+    write_world(config)
+    db = Database(tmp_path / "eidolon.db")
+    try:
+        embedder = FakeEmbedder()
+        sources = open_reference_sources(
+            db, embedder, [mano], load_world(world_path(config.path))
+        )
+        ep1 = Episode(
+            "produce_events/1001", "培育剧情", "W.I.N.G.", "星空", frozenset({"mano"}),
+            (
+                Line("真乃", "天台的风好舒服"),
+                Line("真乃", "あ" * 600),
+                Line("真乃", "あ" * 600),
+                Line("真乃", "天文望远镜好清楚"),
+            ),
+        )
+        ep2 = Episode(
+            "produce_events/1002", "培育剧情", "W.I.N.G.", "公园", frozenset({"mano"}),
+            (Line("真乃", "公園で鳩と歌った"),),
+        )
+        await sources.corpus.save([ep1, ep2])
+
+        # Vector query is orthogonal ("公園" won't boost "望远镜"/"草莓大福"),
+        # yet FTS5 brings them to the top via RRF across all three sources.
+        unrelated_vec = await embedder.embed_query("公園")
+        refs = await sources.candidates(
+            unrelated_vec, mano, limit=3, query="天台 望远镜 草莓大福 ベルーナドーム"
+        )
+        story_refs = [r for r in refs if r.kind == "episode"]
+        fact_refs = [r for r in refs if r.kind == "fact"]
+        work_refs = [r for r in refs if r.kind == "work"]
+        assert len({(r.origin, r.text) for r in story_refs if r.origin == "produce_events/1001"}) == 2
+        assert any(r.origin == "日常" for r in fact_refs)
+        # In fact_refs, querying only "草莓大福" puts 日常 first via FTS5 boost.
+        fact_only = await sources.candidates(unrelated_vec, mano, limit=1, query="草莓大福")
+        assert any(r.kind == "fact" and r.origin == "日常" for r in fact_only)
+        assert any("ベルーナドーム" in r.text for r in work_refs)
+        assert all(0.0 < r.similarity <= 2.0 / (RRF_K + 1) for r in refs)
+
+        # FTS-only (query_vector=None) works without calling embedder and scales score by rank.
+        fts_only = await sources.candidates(None, mano, limit=2, query="天台")
+        assert any(r.origin == "produce_events/1001" for r in fts_only)
+        assert fts_only[0].similarity == pytest.approx(1.0 / (RRF_K + 1))
+
+        # Empty text query uses vector-only path.
+        vec_only = await sources.candidates(unrelated_vec, mano, limit=2, query="")
+        assert any(r.origin == "produce_events/1002" for r in vec_only)
+
+        # Per-source EmbeddingError degrades that source to FTS5.
+        down_embedder = FakeEmbedder(model="unembedded-model")
+        down_embedder.documents_down = True
+        fresh_work = WorkFacts(db, down_embedder, load_world(world_path(config.path)))
+        entries = await fresh_work.search_entries(
+            unrelated_vec, limit=2, kinds=("live",), query="ベルーナドーム"
+        )
+        assert entries and all(e.kind == "live" for e in entries)
+        assert "ベルーナドーム" in entries[0].text
+    finally:
+        await db.close()
+
+

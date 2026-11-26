@@ -14,7 +14,7 @@ from eidolon.corpus import REEMBED_BATCH
 from eidolon.data_access import Database
 from eidolon.embedded_texts import CHARACTER_SCOPES, EmbeddedTexts, character_scope
 from eidolon.embedding import Document, Embedder
-from eidolon.references import Reference, ReferenceKind
+from eidolon.references import Reference, ReferenceKind, search_hybrid_references
 from eidolon.text_search import MemoryFtsIndex, fts_query, titled_text
 
 
@@ -32,6 +32,24 @@ class CharacterFacts:
         self._fts_locks: dict[str, asyncio.Lock] = {}
 
     async def search(
+        self,
+        query_vector: Sequence[float] | None,
+        character: Character,
+        limit: int,
+        query: str | None = None,
+    ) -> list[Reference]:
+        return await search_hybrid_references(
+            lambda n: self._search_by_vector(
+                query_vector if query_vector is not None else (), character, n
+            ),
+            lambda n: self.search_by_text(query or "", character, n),
+            query_vector,
+            query,
+            limit,
+            self.label,
+        )
+
+    async def _search_by_vector(
         self, query_vector: Sequence[float], character: Character, limit: int
     ) -> list[Reference]:
         facts = _facts(character)

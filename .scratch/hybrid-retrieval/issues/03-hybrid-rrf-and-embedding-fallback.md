@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** done
 
 ## 已定的设计（详见 spec）
 
@@ -24,17 +24,17 @@
 
 ## 验收
 
-- [ ] `backend/tests/test_retrieval.py`：
+- [x] `backend/tests/test_retrieval.py`：
   - 假向量化返回无关向量时，靠关键词仍能把对应剧情/角色资料/作品资料召回并送重排、进入提示词；
   - 短追问（如「那时候累吗」）FTS5 补上上一句词，正常带专有名词的句子不被上一句稀释；
   - 向量化失败（`EmbeddingError`）时，参考资料仍通过 FTS5 召回并送重排进入提示词（重排同时失败时降级取 FTS5 前几条），记忆不带；
   - 重排失败（`RerankError`）时，按 RRF 融合分选降级候选；
   - 判断为「不用查」时不调重排、提示词不带资料。
-- [ ] `backend/tests/test_recall_story.py` / `test_world_retrieval.py`：
+- [x] `backend/tests/test_recall_story.py` / `test_world_retrieval.py`：
   - 判断模型预回忆与 `recall_story` 工具均走混合召回（假向量无关时靠关键词仍能想起剧情与演出/唱片）；
   - 向量化失败时，预回忆与 `recall_story` 工具降级走 FTS5，不再直接返回「暂时想不起来」。
-- [ ] `backend/tests/test_retrieval_eval.py`：`--mode vector|fts|hybrid` 全部跑通并能互相对比。
-- [ ] `backend/` 下相关测试、`pyright`、`ruff check` 通过；`sh scripts/affected-tests.sh <基点>` 通过。
+- [x] `backend/tests/test_retrieval_eval.py`：`--mode vector|fts|hybrid` 全部跑通并能互相对比。
+- [x] `backend/` 下相关测试、`pyright`、`ruff check` 通过；`sh scripts/affected-tests.sh <基点>` 通过。
 
 ## Comments
 
@@ -46,3 +46,16 @@
 
 - `StoryCorpus.search_by_text`、`CharacterFacts.search_by_text` 与 `WorkFacts.search_by_text` / `search_entries_by_text` 均已就绪，返回的 `score` / `similarity` 已取 `0.0 - bm25(...)`（正值，越大越相关）；多路合并请调用 `text_search.rrf_fuse` 并传入各自去重键。
 - 重要细节（来自票 02 Spec 审查）：在当前 CJK 2-gram + `STOPWORDS` 下，规格示例短追问「那时候累吗」会产生 3 个查询 token（`["那时", "候累", "累吗"]`），而 `spec.md` 初值阈值是 `< 2`。票 03 实现短追问分流时请结合 `query_tokens(text)` 实测（并在测试和票 04 调参中关注 2-gram 跨边界切词对短追问有效 token 计数的影响，如按需将阈值设为常量供票 04 校准，或评估在短追问判断上是否需考虑字数/有效词数）。
+
+### 实现说明（票 03）
+
+- `backend/src/eidolon/references.py`：扩展 `ReferenceSource` 协议支持 `search(..., query=None)` 与 `search_by_text(...)`，新增 `HYBRID_CANDIDATE_MULTIPLIER = 2`、`fuse_references` 与 `search_hybrid_references`（按 `(origin, text)` 去重保留同篇剧情不同片段，RRF 融合分写入 `Reference.similarity`；有非空 `query` 时单源向量化失败单独降级走 FTS5）。
+- `backend/src/eidolon/retrieval.py`：`StoryReferences` 实现 `search_by_text` 与混合 `search`；`ReferenceSources` 新增 `fts_candidates_by_source`、`fuse_with_fts` 并扩展 `candidates` / `rank`；导出短追问阈值 `FTS_MIN_STANDALONE_TOKENS = 4` 与分流函数 `fts_query_for_reply` / `fts_turn_query`；`Retrieval._find` 与 `recall_story` 在判断模型作答前并行启动向量化与 FTS5 检索（`nothing` 时一并取消）；`EmbeddingError` 时参考资料与回顾剧情均用 FTS5 候选继续送重排（双故障则按 RRF/FTS 排名降级，不再直接返回「暂时想不起来」，记忆仍不带）。
+- `backend/src/eidolon/facts.py` & `work_facts.py`：`CharacterFacts.search` 与 `WorkFacts.search` 接入 `search_hybrid_references`；`WorkFacts.search_entries` 支持 `RECALL_KINDS` 下的混合 RRF、`query_vector=None` 纯 FTS5 与 `EmbeddingError` 降级。
+- `backend/src/eidolon/retrieval_eval.py`、`embedding.py`、`__main__.py`：放通 `eidolon eval retrieval --mode vector|fts|hybrid`，共用 `fts_query_for_reply` 分流；`--mode fts` 使用 `NoEmbedder`（补齐 `aclose()`），不要求配置 `EmbeddingSettings`。
+- 判断说明：CJK 2-gram 步长为 1，短追问「那时候累吗？」产生 3 个 token（`['那时', '候累', '累吗']`），典型短追问在 1–3 个 token、正常专有名词句 ≥ 4，因此将阈值初值设为 `FTS_MIN_STANDALONE_TOKENS = 4` 并导出供票 04 实测校准；跨源降级统一用 RRF 分数避免 BM25 与余弦尺度失衡。
+
+### 审查记录（票 03，基点 `dd3bf037`）
+
+- Standards 轴：无文档规范违规。已按建议提取 `_is_short_followup` 消除 `fts_query_for_reply` 与 `fts_turn_query` 的条件重复，并内联 `Retrieval._find` 中的单行中转 `_hybrid_candidates`。保留判断题：`references.py` / `work_facts.py` / `retrieval.py` 三处混合+降级函数以及三个 `ReferenceSource.search` 适配层各自承载不同的输入输出类型（`Reference`、`WorkEntry`、预启动的 `fts_task`），不过度泛型抽象；`_look_up`/`_recall_turn` 参数组保持现有可读签名。
+- Spec 轴：无缺漏、无范围外行为、无逻辑错误。记录两项交接给票 04：`rerank_eval.py` 调 `sources.rank` 尚未传 `fts_text`，以及 4 字中文词（3 个 2-gram）在 `FTS_MIN_STANDALONE_TOKENS = 4` 下会拼入上一句，均由票 04 在真实库实测时一并校准。

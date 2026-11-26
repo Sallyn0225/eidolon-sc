@@ -955,7 +955,7 @@ async def _eval_retrieval(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
     from eidolon.config import EmbeddingSettings
     from eidolon.data_access import Database
-    from eidolon.embedding import EmbeddingError, open_embedder
+    from eidolon.embedding import ClosableEmbedder, EmbeddingError, NoEmbedder, open_embedder
     from eidolon.rerank_eval import CalibrationError, load_calibration
     from eidolon.retrieval import CANDIDATES_PER_SOURCE, open_reference_sources
     from eidolon.retrieval_eval import (
@@ -977,17 +977,21 @@ async def _eval_retrieval(args: argparse.Namespace) -> int:
         characters = load_characters(characters_path)
         world = load_world(world_path(characters_path))
         calibration = load_calibration(args.file, world)
-        embedding = EmbeddingSettings.required_from_env()
+        embedding = EmbeddingSettings.required_from_env() if args.mode != "fts" else None
     except (RuntimeError, CalibrationError, RetrievalEvalError) as e:
         print(e, file=sys.stderr)
         return 1
-    warnings = logging.StreamHandler()  # missing vectors skew the retrieval eval
+    warnings = logging.StreamHandler()  # missing vectors skew vector/hybrid retrieval eval
     warnings.setFormatter(logging.Formatter("注意：%(message)s"))
     logging.getLogger("eidolon.retrieval").addHandler(warnings)
-    embedder = open_embedder(embedding)
+    embedder: ClosableEmbedder = (
+        open_embedder(embedding) if embedding is not None else NoEmbedder()
+    )
     db = Database(args.db or database_path_from_env())
     try:
-        sources = open_reference_sources(db, embedder, characters.values(), world)
+        sources = open_reference_sources(
+            db, embedder, characters.values(), world, warn=args.mode != "fts"
+        )
         results = await evaluate_retrieval(
             calibration, characters, sources, mode=args.mode, k=k
         )
@@ -1503,7 +1507,7 @@ def _parser() -> argparse.ArgumentParser:
         "--mode",
         choices=["vector", "fts", "hybrid"],
         default="vector",
-        help="召回模式（默认 vector；fts 与 hybrid 需在接入 FTS5 后使用）",
+        help="召回模式：vector（纯向量）、fts（纯 FTS5 全文）或 hybrid（RRF 混合，默认 vector）",
     )
     retrieval.add_argument(
         "--k",

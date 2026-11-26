@@ -17,7 +17,7 @@ from eidolon.characters import Character
 from eidolon.memory import joined_query
 from eidolon.references import Reference, ReferenceKind
 from eidolon.rerank_eval import Calibration, CalibrationError, Case
-from eidolon.retrieval import CANDIDATES_PER_SOURCE, ReferenceSources
+from eidolon.retrieval import CANDIDATES_PER_SOURCE, ReferenceSources, fts_query_for_reply
 
 RetrievalMode = Literal["vector", "fts", "hybrid"]
 EvaluatedKind = Literal["story", "facts", "work"]
@@ -59,9 +59,9 @@ def validate_retrieval_options(mode: str, k: int) -> None:
     """Validate CLI / API options before opening the database or embedding client."""
     if k < 1:
         raise RetrievalEvalError("--k 至少是 1")
-    if mode != "vector":
+    if mode not in ("vector", "fts", "hybrid"):
         raise RetrievalEvalError(
-            f"检索模式 {mode} 尚未接入（需先完成 FTS5 全文索引与混合召回）"
+            f"不支持的检索模式：{mode}（可选 vector、fts、hybrid）"
         )
 
 
@@ -89,9 +89,15 @@ async def evaluate_retrieval(
             skipped_empty += 1
             continue
         query_text = joined_query(case.previous, case.query)
-        query_vector = await sources.embedder.embed_query(query_text)
+        fts_text = fts_query_for_reply(case.previous, case.query)
+        query_vector = (
+            await sources.embedder.embed_query(query_text)
+            if mode != "fts"
+            else None
+        )
+        text_query = fts_text if mode != "vector" else None
         candidates = await sources.candidates(
-            query_vector, characters[case.character], limit=k
+            query_vector, characters[case.character], limit=k, query=text_query
         )
         ranks_by_origin = _rank_origins(candidates)
         ranks = {

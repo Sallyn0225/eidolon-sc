@@ -259,24 +259,97 @@ def test_cli_eval_retrieval_runs_vector_saves_and_compares_without_rerank_key(
     assert "新漏掉：无" in compared
 
 
-def test_cli_eval_retrieval_rejects_unimplemented_mode_and_bad_k(
+def test_cli_eval_retrieval_rejects_unknown_mode_and_bad_k(
     retrieval_world, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ):
+    from eidolon.retrieval_eval import validate_retrieval_options
+
     _, _, calibration_path, _ = retrieval_world
     admin = Admin(tmp_path / "eidolon.db", capsys)
     config = tmp_path / "characters" / "characters.toml"
 
-    err_mode = admin.fails(
-        "eval", "retrieval", "--mode", "fts",
-        "--file", str(calibration_path), "--characters", str(config),
-    )
-    assert "尚未接入" in err_mode
+    with pytest.raises(RetrievalEvalError, match="不支持"):
+        validate_retrieval_options("bm25", 4)
 
     err_k = admin.fails(
         "eval", "retrieval", "--k", "0",
         "--file", str(calibration_path), "--characters", str(config),
     )
     assert "1" in err_k
+
+
+def test_cli_eval_retrieval_runs_fts_without_embedding_env_and_hybrid_compares_to_it(
+    retrieval_world, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+):
+    _, world, _, sources = retrieval_world
+    asyncio.run(sources.corpus.save([PARK, FINAL, OTHER]))
+    cal_path = tmp_path / "cal_modes.toml"
+    cal_path.write_text(
+        CALIBRATION
+        + """
+[[cases]]
+id = "facts-unrelated-previous"
+character = "mano"
+kind = "facts"
+previous = "公園の鳩"
+query = "写真のこと覚えてる？"
+relevant = ["档案"]
+""",
+        encoding="utf-8",
+    )
+
+    for var in ("EMBEDDING_PROVIDER", "GEMINI_API_KEY", "SILICONFLOW_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    admin = Admin(tmp_path / "eidolon.db", capsys)
+    config = tmp_path / "characters" / "characters.toml"
+    fts_baseline = tmp_path / "fts.json"
+
+    fts_out = admin.run(
+        "eval", "retrieval", "--mode", "fts", "--k", "4",
+        "--file", str(cal_path), "--characters", str(config),
+        "--save", str(fts_baseline),
+    )
+    assert "模式：fts　k = 4" in fts_out
+    assert "Recall@4 80.0%" in fts_out
+    saved = json.loads(fts_baseline.read_text(encoding="utf-8"))
+    assert saved["mode"] == "fts"
+
+    # Also verify facts-followup includes previous ("公園"), while facts-unrelated-previous does not.
+    from eidolon.embedding import NoEmbedder
+
+    async def check_routing() -> dict[str, dict[str, int]]:
+        db = Database(tmp_path / "eidolon.db")
+        try:
+            loaded_chars = load_characters(config)
+            no_embed_sources = open_reference_sources(
+                db, NoEmbedder(), loaded_chars.values(), world, warn=False
+            )
+            fts_res = await evaluate_retrieval(
+                load_calibration(cal_path, world),
+                loaded_chars,
+                no_embed_sources,
+                mode="fts",
+                k=1,
+            )
+            return {c.case.id: c.ranks for c in fts_res.cases}
+        finally:
+            await db.close()
+
+    ranks_by_id = asyncio.run(check_routing())
+    assert ranks_by_id["facts-followup"] == {"鸟 / ピーちゃん": 1}
+    assert ranks_by_id["facts-unrelated-previous"] == {"档案": 1}
+
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-key")
+    monkeypatch.setattr("eidolon.embedding.open_embedder", lambda *_: _ClosableEmbedder())
+    hybrid_out = admin.run(
+        "eval", "retrieval", "--mode", "hybrid", "--k", "4",
+        "--file", str(cal_path), "--characters", str(config),
+        "--compare", str(fts_baseline),
+    )
+    assert "模式：hybrid　k = 4" in hybrid_out
+    assert "## 基线对比（基线模式：fts" in hybrid_out
 
 
 

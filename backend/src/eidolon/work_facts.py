@@ -11,16 +11,24 @@ went searches them itself (`search_entries`), for the lives and releases only.
 """
 
 import asyncio
+import logging
 from collections.abc import Callable, Collection, Sequence
 
 from eidolon.characters import Character
 from eidolon.corpus import REEMBED_BATCH
 from eidolon.data_access import Database
 from eidolon.embedded_texts import WORK_SCOPE, EmbeddedTexts
-from eidolon.embedding import Document, Embedder
-from eidolon.references import Reference, ReferenceKind
-from eidolon.text_search import MemoryFtsIndex, fts_query, titled_text
+from eidolon.embedding import Document, Embedder, EmbeddingError
+from eidolon.references import (
+    HYBRID_CANDIDATE_MULTIPLIER,
+    Reference,
+    ReferenceKind,
+    search_hybrid_references,
+)
+from eidolon.text_search import RRF_K, MemoryFtsIndex, fts_query, rrf_fuse, titled_text
 from eidolon.world import EntryKind, World, WorldEntry
+
+log = logging.getLogger(__name__)
 
 WORK_RULE = "作品资料里只有名称、日期、会场、出演者这类事实，没有台上或当时具体发生了什么，不要编造。"
 """What the work facts do not tell, for every prompt that carries them."""
@@ -46,7 +54,25 @@ class WorkFacts:
         self._fts_lock = asyncio.Lock()
 
     async def search(
-        self, query_vector: Sequence[float], character: Character, limit: int
+        self,
+        query_vector: Sequence[float] | None,
+        character: Character,
+        limit: int,
+        query: str | None = None,
+    ) -> list[Reference]:
+        return await search_hybrid_references(
+            lambda n: self._search_by_vector(
+                query_vector if query_vector is not None else (), n
+            ),
+            lambda n: self.search_by_text(query or "", character, n),
+            query_vector,
+            query,
+            limit,
+            self.label,
+        )
+
+    async def _search_by_vector(
+        self, query_vector: Sequence[float], limit: int
     ) -> list[Reference]:
         return [
             Reference(self.kind, e.text, e.title, similarity)
@@ -64,13 +90,40 @@ class WorkFacts:
 
     async def search_entries(
         self,
-        query_vector: Sequence[float],
+        query_vector: Sequence[float] | None,
         limit: int,
         kinds: Collection[EntryKind] | None = None,
+        query: str | None = None,
     ) -> list[WorldEntry]:
-        """The entries (of `kinds`, or any) most similar to a query embedded with this
-        source's embedder, best first."""
-        return [e for e, _ in await self._nearest(query_vector, limit, kinds)]
+        """The entries (of `kinds`, or any) matching `query_vector`, `query`, or both
+        (fused with RRF), best first."""
+        if limit <= 0:
+            return []
+        if not query:
+            if query_vector is None:
+                return []
+            return [e for e, _ in await self._nearest(query_vector, limit, kinds)]
+        if query_vector is None:
+            return [e for e, _ in await self._nearest_by_text(query, limit, kinds)]
+        fetch_limit = limit * HYBRID_CANDIDATE_MULTIPLIER
+        fts_task = asyncio.ensure_future(self._nearest_by_text(query, fetch_limit, kinds))
+        try:
+            try:
+                vec_entries = [e for e, _ in await self._nearest(query_vector, fetch_limit, kinds)]
+            except EmbeddingError:
+                log.warning(
+                    "vector search failed for %s entries; falling back to FTS5",
+                    self.label,
+                    exc_info=True,
+                )
+                fts_entries = [e for e, _ in await fts_task]
+                return fts_entries[:limit]
+            fts_entries = [e for e, _ in await fts_task]
+            fused = rrf_fuse([vec_entries, fts_entries], key=lambda e: e.text, k=RRF_K)
+            return [e for e, _ in fused[:limit]]
+        finally:
+            if not fts_task.done():
+                fts_task.cancel()
 
     async def search_entries_by_text(
         self,

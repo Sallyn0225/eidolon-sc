@@ -16,7 +16,7 @@
 
 ## 验收
 
-- [ ] 扩充进 `backend/eval/rerank-calibration.toml` 的新用例已由用户校对并标 `reviewed = true`。
+- [x] 扩充进 `backend/eval/rerank-calibration.toml` 的新用例已由用户校对并标 `reviewed = true`。
 - [ ] 在本地 `eidolon.db` 上跑完 `eidolon eval retrieval --mode vector`（基线）、`--mode fts`、`--mode hybrid --compare <baseline>`，确认 `hybrid` 的 `Recall@k` 与 `MRR` 优于纯向量基线，完整数据记入本票 Comments。
 - [ ] 跑完 `eidolon eval rerank`，确认重排分数线与误放行无恶化，校准记录写入 `rerank.py` 与本票 Comments。
 - [ ] 检查并更新所有受影响模块的 docstring、注释与相关文档；确认不留临时基线 JSON 文件在未跟踪目录中（是否提交正式基线 JSON 由用户决定）。
@@ -28,3 +28,11 @@
 
 - `backend/eval/rerank-calibration.toml` 新增 20 条 `reviewed = false` 召回用例（总计 80 条），人工校对时可一并留意 `hiori-json-father-gift` 的 `acceptable` 项（`produce_events/200200711` 为 `csv` 汉化剧情，`relevant` 项 `produce_events/200200703` 为未汉化 `json` 剧情）。
 - 票 01 本地纯向量基线（`k = 12`，60 条有效题）：总体 `Recall@12 86.1%`（87/101）、`MRR 0.8235`，共 13 条漏召回（详见票 01 Comments）。
+
+### 票 03 交接
+
+- 可调参数常量：
+  - `backend/src/eidolon/text_search.py`: `RRF_K = 60`
+  - `backend/src/eidolon/references.py`: `HYBRID_CANDIDATE_MULTIPLIER = 2`（单路 Top-24）
+  - `backend/src/eidolon/retrieval.py`: `FTS_MIN_STANDALONE_TOKENS = 4`（当前按 CJK 2-gram 设的初值，使「那时候累吗？」的 3 个 token 补入上文；注意 4 字中文专有名词如「草莓大福」也是 3 个 2-gram，实测时请对比 `2 / 3 / 4` 对短追问和换话题题的影响）。
+- `backend/src/eidolon/rerank_eval.py` 调用 `sources.rank(...)` 时目前未传 `fts_text`（默认用 `query_text` 同时做向量与 FTS5）。票 04 跑 `eidolon eval rerank` 前请检查并传入 `fts_text=fts_query_for_reply(case.previous, case.query)`，使重排校准与真实回合的混合召回口径完全一致。
