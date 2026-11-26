@@ -289,7 +289,7 @@ The license covers only the code and documentation in the repository. The follow
 
 ## 🙏 Acknowledgements
 
-- [LAPLACE Eidolon](https://laplace.live/eidolon): a real-time voice AI companion built for the VTuber Mingqian Nailü (明前奶绿); this project's architectural reference (none of its code is reused)
+- [LAPLACE Eidolon](https://github.com/laplace-live/eidolon) ([website](https://laplace.live/eidolon)): a real-time voice AI companion built for the VTuber Mingqian Nailü (明前奶绿); this project's architectural reference (none of its code is reused)
 - [LAPLACE Cycles](https://laplace.live/cycles): the reference for the Cycles page's estimates, with thanks for publishing how it works (none of its code is reused)
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData): story text and Chinese translations
 - [ShinyColorsDB](https://github.com/ShinyColorsDB): the mirror of the original scripts, and the stand assets

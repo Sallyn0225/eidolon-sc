@@ -289,7 +289,7 @@ eidolon-sc/
 
 ## 🙏 謝辞
 
-- [LAPLACE Eidolon](https://laplace.live/eidolon)：VTuber・明前奶绿のために作られたリアルタイム音声 AI 分身。本プロジェクトのアーキテクチャの参考（コードは流用していません）
+- [LAPLACE Eidolon](https://github.com/laplace-live/eidolon)（[公式サイト](https://laplace.live/eidolon)）：VTuber・明前奶绿のために作られたリアルタイム音声 AI 分身。本プロジェクトのアーキテクチャの参考（コードは流用していません）
 - [LAPLACE Cycles](https://laplace.live/cycles)：周期ページの推定アルゴリズムの参考。やり方を公開してくれたことに感謝します（コードは流用していません）
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData)：シナリオテキストと中国語訳
 - [ShinyColorsDB](https://github.com/ShinyColorsDB)：原文コミュのミラーと立ち絵素材

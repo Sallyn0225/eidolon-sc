@@ -306,7 +306,7 @@ eidolon-sc/
 
 ## 🙏 致谢
 
-- [LAPLACE Eidolon](https://laplace.live/eidolon)：为虚拟主播明前奶绿打造的实时语音 AI 分身，本项目的架构参考（未复用其代码）
+- [LAPLACE Eidolon](https://github.com/laplace-live/eidolon)（[官网](https://laplace.live/eidolon)）：为虚拟主播明前奶绿打造的实时语音 AI 分身，本项目的架构参考（未复用其代码）
 - [LAPLACE Cycles](https://laplace.live/cycles)：周期页推算算法的参考，感谢它公开了做法（未复用其代码）
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData)：剧情文本与中文翻译
 - [ShinyColorsDB](https://github.com/ShinyColorsDB)：原文剧情的镜像与立绘素材
