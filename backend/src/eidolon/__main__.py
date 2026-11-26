@@ -80,6 +80,10 @@
                                      the text in the database and the world setting
     eidolon eval rerank [--model M]  score the reranker on the calibration set, to set its
                                      thresholds
+    eidolon eval retrieval [--mode vector|fts|hybrid] [--k N] [--file F] [--db P] [--characters P] [--save F] [--compare F]
+                                     score candidate retrieval (recall@k and MRR) on the
+                                     calibration set without calling the reranker, and save
+                                     or compare baselines
     eidolon eval judge [--provider P] [--model M] [--only K] [--json F]
                                      ask the judge model the judge eval set's turns and
                                      segments, or only those of kind K, to set its
@@ -167,6 +171,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _restore(args)
     if args.command == "reembed":
         return asyncio.run(_reembed(args))
+    if args.command == "eval" and args.action == "retrieval":
+        return asyncio.run(_eval_retrieval(args))
     if args.command == "eval" and args.action == "judge":
         return asyncio.run(_eval_judge(args))
     if args.command == "eval" and args.action == "memory":
@@ -945,6 +951,63 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _eval_retrieval(args: argparse.Namespace) -> int:
+    from eidolon.characters import load_characters
+    from eidolon.config import EmbeddingSettings
+    from eidolon.data_access import Database
+    from eidolon.embedding import EmbeddingError, open_embedder
+    from eidolon.rerank_eval import CalibrationError, load_calibration
+    from eidolon.retrieval import CANDIDATES_PER_SOURCE, open_reference_sources
+    from eidolon.retrieval_eval import (
+        RetrievalEvalError,
+        evaluate_retrieval,
+        load_baseline,
+        report_retrieval,
+        save_baseline,
+        summarize_retrieval,
+        validate_retrieval_options,
+    )
+    from eidolon.world import load_world, world_path
+
+    k = CANDIDATES_PER_SOURCE if args.k is None else args.k
+    try:
+        validate_retrieval_options(args.mode, k)
+        baseline = load_baseline(args.compare) if args.compare else None
+        characters_path = args.characters or characters_path_from_env()
+        characters = load_characters(characters_path)
+        world = load_world(world_path(characters_path))
+        calibration = load_calibration(args.file, world)
+        embedding = EmbeddingSettings.required_from_env()
+    except (RuntimeError, CalibrationError, RetrievalEvalError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    warnings = logging.StreamHandler()  # missing vectors skew the retrieval eval
+    warnings.setFormatter(logging.Formatter("注意：%(message)s"))
+    logging.getLogger("eidolon.retrieval").addHandler(warnings)
+    embedder = open_embedder(embedding)
+    db = Database(args.db or database_path_from_env())
+    try:
+        sources = open_reference_sources(db, embedder, characters.values(), world)
+        results = await evaluate_retrieval(
+            calibration, characters, sources, mode=args.mode, k=k
+        )
+    except (CalibrationError, RetrievalEvalError, EmbeddingError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    finally:
+        await db.close()
+        await embedder.aclose()
+    print(report_retrieval(results, baseline=baseline))
+    if args.save:
+        try:
+            save_baseline(args.save, summarize_retrieval(results, file=str(args.file)))
+        except RetrievalEvalError as e:
+            print(e, file=sys.stderr)
+            return 1
+        print(f"\n基线已写入 {args.save}")
+    return 0
+
+
 async def _eval_judge(args: argparse.Namespace) -> int:
     import json
 
@@ -1431,6 +1494,42 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
     )
+
+    retrieval = evaluation.add_parser(
+        "retrieval",
+        help="不调重排服务，直接在本地库上评测候选召回率（Recall@k）与 MRR，支持保存或对比基线",
+    )
+    retrieval.add_argument(
+        "--mode",
+        choices=["vector", "fts", "hybrid"],
+        default="vector",
+        help="召回模式（默认 vector；fts 与 hybrid 需在接入 FTS5 后使用）",
+    )
+    retrieval.add_argument(
+        "--k",
+        type=int,
+        default=None,
+        help="每个来源取前多少条候选（默认取 CANDIDATES_PER_SOURCE）",
+    )
+    retrieval.add_argument(
+        "--file",
+        type=Path,
+        default=Path("eval/rerank-calibration.toml"),
+        help="校准数据集（默认 eval/rerank-calibration.toml）",
+    )
+    retrieval.add_argument(
+        "--db",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="数据库文件（默认取环境变量 EIDOLON_DATABASE_PATH）",
+    )
+    retrieval.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
+    retrieval.add_argument("--save", type=Path, help="把召回评测结果写成 JSON 基线文件")
+    retrieval.add_argument("--compare", type=Path, help="与已保存的 JSON 基线文件逐项对比")
 
     judge = evaluation.add_parser(
         "judge",

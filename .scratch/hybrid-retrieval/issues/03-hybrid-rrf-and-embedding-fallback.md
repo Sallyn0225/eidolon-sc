@@ -37,3 +37,7 @@
 - [ ] `backend/` 下相关测试、`pyright`、`ruff check` 通过；`sh scripts/affected-tests.sh <基点>` 通过。
 
 ## Comments
+
+### 票 01 交接
+
+- `backend/src/eidolon/retrieval_eval.py` 的 `validate_retrieval_options` 与 `evaluate_retrieval` 已为 `--mode fts|hybrid` 留好接缝，目前仅放行 `vector`（`fts` / `hybrid` 抛出 `RetrievalEvalError`）。本票接入三源混合召回与 FTS5 查询串分流后，直接放开这两种模式并复用与真实回合一致的检索逻辑；同时注意 `--mode fts` 时不要求 `EmbeddingSettings`（无需向量化客户端）。

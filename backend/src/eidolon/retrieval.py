@@ -199,12 +199,13 @@ class ReferenceSources:
         query_vector: Sequence[float],
         character: Character,
         kinds: Collection[ReferenceKind] | None = None,
+        limit: int = CANDIDATES_PER_SOURCE,
     ) -> list[Reference]:
         """The candidate references for a query embedded with the sources' embedder: as many as
-        `CANDIDATES_PER_SOURCE` of each source's (of `kinds`, or any) nearest it. Raises
-        EmbeddingError if a source's texts not embedded yet cannot be."""
+        `limit` of each source's (of `kinds`, or any) nearest it. Raises EmbeddingError if a
+        source's texts not embedded yet cannot be."""
         found = await asyncio.gather(*(
-            s.search(query_vector, character, CANDIDATES_PER_SOURCE)
+            s.search(query_vector, character, limit)
             for s in self._sources
             if kinds is None or s.kind in kinds
         ))

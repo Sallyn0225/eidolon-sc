@@ -23,3 +23,8 @@
 - [ ] `backend/` 下 `pytest`、`pyright`、`ruff check` 全部通过；`sh scripts/affected-tests.sh <基点>` 通过。
 
 ## Comments
+
+### 票 01 交接
+
+- `backend/eval/rerank-calibration.toml` 新增 20 条 `reviewed = false` 召回用例（总计 80 条），人工校对时可一并留意 `hiori-json-father-gift` 的 `acceptable` 项（`produce_events/200200711` 为 `csv` 汉化剧情，`relevant` 项 `produce_events/200200703` 为未汉化 `json` 剧情）。
+- 票 01 本地纯向量基线（`k = 12`，60 条有效题）：总体 `Recall@12 86.1%`（87/101）、`MRR 0.8235`，共 13 条漏召回（详见票 01 Comments）。
