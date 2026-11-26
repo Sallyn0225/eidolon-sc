@@ -27,7 +27,7 @@
 - [x] `eidolon eval retrieval --help` 与 `__main__.py` 帮助文档包含该子命令。
 - [x] `backend/eval/rerank-calibration.toml` 通过加载校验（所有 `work` 标题能在 `characters/world.json` 中找到、无重复 `id`、不含剧情原文）。
 - [x] `backend/` 下相关测试、`pyright`、`ruff check` 通过。
-- [ ] **人工验收**（agent 先跑并把纯向量基线结果记入 Comments，待用户校对新增的 `reviewed = false` 用例）：在本地 `eidolon.db` 上跑 `eidolon eval retrieval --mode vector`，确认新旧用例里确实暴露出纯向量的漏召回样本。
+- [x] **人工验收**（agent 先跑并把纯向量基线结果记入 Comments，待用户校对新增的 `reviewed = false` 用例）：在本地 `eidolon.db` 上跑 `eidolon eval retrieval --mode vector`，确认新旧用例里确实暴露出纯向量的漏召回样本。
 
 ## Comments
 

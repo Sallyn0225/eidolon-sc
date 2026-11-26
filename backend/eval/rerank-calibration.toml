@@ -878,7 +878,7 @@ note = "换了话题：上一句聊长崎美食，这一句问足球，剧情库
 reviewed = true
 
 # ---------------------------------------------------------------------------
-# 混合召回扩充用例（hybrid-retrieval 票 01，待人工校对 reviewed = false）：
+# 混合召回扩充用例（hybrid-retrieval 票 01，已人工校对）：
 # 覆盖冷门卡名/活动名、未汉化日文剧情（imported_from = 'json'）、歌曲/唱片/演出名、
 # 2 字角色名及日语原名/片假名、带 previous 的短追问。只写编号与标题，不含剧情原文（ADR-0003）。
 # ---------------------------------------------------------------------------
@@ -895,7 +895,7 @@ relevant = [
 ]
 acceptable = ["produce_events/201800702", "produce_events/201800711"]
 note = "冷门卡名【starring F】：第 3、4 话讲中学和高中时切换两个「ふゆ」，对应角色资料条目也直接回答。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "toru-story-okukounen"
@@ -910,7 +910,7 @@ acceptable = [
   "produce_events/202000804",
 ]
 note = "冷门卡名【国道沿いに、憶光年】：TE「１個、光」呼应童年攀登架的梦。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "rinze-story-kaidan"
@@ -931,7 +931,7 @@ acceptable = [
   "game_event_communications/400102107",
 ]
 note = "冷门活动名「階段の先の君へ」：终章标题即寄出照片，对应组合资料条目也提到这次活动。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "luca-story-broken-shout"
@@ -946,7 +946,7 @@ acceptable = [
   "produce_events/202600411",
 ]
 note = "英文卡名【broken shout】：第 4 话讲小型演出音响损坏后继续唱下去。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "fuyuko-json-miramira"
@@ -959,7 +959,7 @@ relevant = [
   "档案 / 小时候与『ミラ♡ミラ』",
 ]
 note = "未汉化日文剧情（imported_from = 'json'）：【おっきくならなくちゃ】两话与童年动画、时间胶囊相关。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "luca-json-by-spiral"
@@ -978,7 +978,7 @@ acceptable = [
   "game_event_communications/400106406",
 ]
 note = "未汉化日文活动剧情（imported_from = 'json'）：活动064「バイ・スパイラル」第 7–8 话有周刊记者采访。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "haruki-json-kokoa-sakura"
@@ -993,7 +993,7 @@ acceptable = [
   "produce_events/202800511",
 ]
 note = "未汉化日文剧情（imported_from = 'json'）：【連綿と、桜】第 4 话提及晚上喝可可加棉花糖。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "hiori-json-father-gift"
@@ -1003,7 +1003,7 @@ query = "之前你说爸爸暂时回来时想送他礼物，挑到合适的了�
 relevant = ["produce_events/200200703", "档案 / 家人与家务"]
 acceptable = ["produce_events/200200704", "produce_events/200200711"]
 note = "未汉化日文剧情（imported_from = 'json'）：【伸ばす手に乗せるのは】「秘密ってむずかしい」讲父亲临时回家时商量送礼。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "luca-work-song-kamisama"
@@ -1016,7 +1016,7 @@ acceptable = [
   "歌曲「神様は死んだ、って (2024 Remastering Ver.)」",
 ]
 note = "歌曲条目写了演唱与收录唱片，对应唱片和重制版可放可不放。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "fuyuko-work-song-timeless"
@@ -1026,7 +1026,7 @@ query = "「Timeless Shooting Star」是 Straylight 三个人一起唱的吧？"
 relevant = ["歌曲「Timeless Shooting Star」"]
 acceptable = ["歌曲「Timeless Shooting Star（黛 冬優子Ver.）」"]
 note = "英文歌名「Timeless Shooting Star」，检验英文歌曲精确匹配。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kaho-work-release-wing04"
@@ -1036,7 +1036,7 @@ query = "放クラ 的那张「BRILLI@NT WING 04 夢咲きAfter school」是什�
 relevant = ["唱片《THE IDOLM@STER SHINY COLORS BRILLI@NT WING 04 夢咲きAfter school》（LACM-14784）"]
 acceptable = ["歌曲「夢咲きAfter school」"]
 note = "指定唱片编号系列的 BRILLI@NT WING 04 发售日，易与其他 WING 04 系列混淆。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "haruki-work-live-singularity"
@@ -1046,7 +1046,7 @@ query = "今年 4 月在幕张办的「S/N-GUL4R1TY」那场演出，第一天�
 relevant = ["演出「283 Production XXXX Performance XXX= S/N-GUL4R1TY」2026年4月11日"]
 acceptable = ["演出「283 Production XXXX Performance XXX= S/N-GUL4R1TY」2026年4月12日"]
 note = "特殊符号与字母混合演出名「S/N-GUL4R1TY」，检验 ASCII 专有名词召回。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-facts-meguru-2char"
@@ -1056,7 +1056,7 @@ query = "めぐる平时在学校和社团那边是什么样的？"
 relevant = ["人物关系 / 八宮めぐる"]
 acceptable = ["组合 / 三人的日常"]
 note = "日文平假名角色名「めぐる」，检验角色资料中人物关系条目召回。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "hazuki-facts-chiyuki-name"
@@ -1066,7 +1066,7 @@ query = "平时和千雪私下关系怎么样，你们怎么互相称呼的？"
 relevant = ["人物关系 / 桑山千雪"]
 acceptable = ["经历 / 事务所的活动"]
 note = "2 字中文角色名「千雪」，询问事务员七草はづき与她的关系。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "luca-facts-mikoto-katakana"
@@ -1076,7 +1076,7 @@ query = "你以前和美琴在之前的事务所组双人组合那会儿，是�
 relevant = ["人物关系 / 緋田美琴", "档案 / 兴趣与特技"]
 acceptable = ["经历 / 前事务所的最后"]
 note = "2 字角色名「美琴」+ 片假名「コンテンポラリー」，检验中/日混杂专有名词召回。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "haruki-facts-luca-katakana"
@@ -1086,7 +1086,7 @@ query = "ルカ平时在工作现场，是怎么照顾你和羽那的？"
 relevant = ["人物关系 / 斑鳩ルカ"]
 acceptable = ["组合 / 组合的工作与日常", "人物关系 / 鈴木羽那"]
 note = "2 字符片假名「ルカ」+ 2 字汉字名「羽那」，检验短片假名专有名词召回。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "fuyuko-followup-spicy-food"
@@ -1096,7 +1096,7 @@ previous = "其实人家偶尔也很想吃正宗的激辛咖喱嘛"
 query = "你平时不是都瞒着粉丝吗？"
 relevant = ["喜好 / 吃的东西"]
 note = "短追问：上一句提到激辛咖喱，这一句省略主题追问「瞒着粉丝」。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "toru-followup-ufo"
@@ -1106,7 +1106,7 @@ previous = "以前祭典的时候，我还用竹签在地上画过麦田怪圈�
 query = "怎么突然画那个？"
 relevant = ["喜好 / 宇宙人とUFO"]
 note = "短追问：「那个」指上一句祭典画麦田怪圈想叫宇宙人。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "luca-followup-apriori-cd"
@@ -1119,7 +1119,7 @@ relevant = [
   "歌曲「無自覚アプリオリ」",
 ]
 note = "短追问：省略了歌名，从上一句「無自覚アプリオリ」接续问单曲发售日。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "rinze-followup-tottori-art"
@@ -1141,4 +1141,4 @@ acceptable = [
   "game_event_communications/400109207",
 ]
 note = "短追问 + 未汉化日文活动（imported_from = 'json'）：活动092「sand song」终章放クラ作为嘉宾上台。"
-reviewed = false
+reviewed = true
